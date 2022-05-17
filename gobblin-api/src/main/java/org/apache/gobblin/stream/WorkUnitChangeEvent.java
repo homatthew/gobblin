@@ -19,12 +19,14 @@ package org.apache.gobblin.stream;
 
 import java.util.List;
 import lombok.Getter;
+import lombok.ToString;
 import org.apache.gobblin.source.workunit.WorkUnit;
 
 /**
  * The event for {@link org.apache.gobblin.source.InfiniteSource} to indicate there is a change in work units
  * Job launcher should then be able to handle this event
  */
+@ToString
 public class WorkUnitChangeEvent {
   @Getter
   private final List<String> oldTaskIds;

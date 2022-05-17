@@ -274,7 +274,7 @@ public abstract class AbstractJobLauncher implements JobLauncher {
   @Subscribe
   public void handleWorkUnitChangeEvent(WorkUnitChangeEvent workUnitChangeEvent)
       throws InvocationTargetException {
-    LOG.info("start to handle workunit change event");
+    LOG.info("mho-ufk-test: start to handle workunit change event {}", workUnitChangeEvent.toString());
     try {
       this.removeTasksFromCurrentJob(workUnitChangeEvent.getOldTaskIds());
       this.addTasksToCurrentJob(workUnitChangeEvent.getNewWorkUnits());
