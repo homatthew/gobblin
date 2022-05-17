@@ -284,11 +284,11 @@ public class GobblinHelixJobLauncher extends AbstractJobLauncher {
             boolean remove =
                 HelixUtils.deleteTaskFromHelixJob(helixWorkFlowName, jobName, taskId, helixTaskDriver);
             if (remove) {
-              log.info(String.format("Removed helix task %s with gobblin task id  %s from helix job %s:%s ", taskId,
+              log.info(String.format("mho-ufk-test: Removed helix task %s with gobblin task id  %s from helix job %s:%s ", taskId,
                   workUnitId, helixWorkFlowName, jobName));
             } else {
               throw new IOException(
-                  String.format("Cannot remove task %s from helix job %s:%s", workUnitId,
+                  String.format("mho-ufk-test: cannot remove task %s from helix job %s:%s", workUnitId,
                       helixWorkFlowName, jobName));
             }
             return true;
@@ -314,13 +314,13 @@ public class GobblinHelixJobLauncher extends AbstractJobLauncher {
                 HelixUtils.addTaskToHelixJob(helixWorkFlowName, jobName, taskConfig, helixTaskDriver);
             if (added) {
               log.info(
-                  String.format("Added task %s to helix job %s:%s ", workunit.getId(), helixWorkFlowName, jobName));
+                  String.format("mho-ufk-test: Added task %s to helix job %s:%s ", workunit.getId(), helixWorkFlowName, jobName));
             } else {
               log.error(
-                  String.format("Failed to add task %s to helix job %s:%s ", workunit.getId(), helixWorkFlowName,
+                  String.format("mho-ufk-test: Failed to add task %s to helix job %s:%s ", workunit.getId(), helixWorkFlowName,
                       jobName));
               throw new IOException(
-                  String.format("Cannot add task %s to helix job %s:%s", workunit.getId(),
+                  String.format("mho-ufk-test: Cannot add task %s to helix job %s:%s", workunit.getId(),
                       helixWorkFlowName, jobName));
             }
             return true;
