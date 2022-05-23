@@ -472,13 +472,14 @@ public class GobblinHelixJobLauncher extends AbstractJobLauncher {
     String workUnitFilePath =
         persistWorkUnit(new Path(this.inputWorkUnitDir, this.jobContext.getJobId()), workUnit, stateSerDeRunner);
 
-    Map<String, String> rawConfigMap = Maps.newHashMap();
-    rawConfigMap.put(GobblinClusterConfigurationKeys.WORK_UNIT_FILE_PATH, workUnitFilePath);
-    rawConfigMap.put(ConfigurationKeys.JOB_NAME_KEY, this.jobContext.getJobName());
-    rawConfigMap.put(ConfigurationKeys.JOB_ID_KEY, this.jobContext.getJobId());
-    rawConfigMap.put(ConfigurationKeys.TASK_ID_KEY, workUnit.getId());
-    rawConfigMap.put(GobblinClusterConfigurationKeys.TASK_SUCCESS_OPTIONAL_KEY, "true");
-    TaskConfig taskConfig = TaskConfig.Builder.from(rawConfigMap);
+    TaskConfig taskConfig = new TaskConfig.Builder()
+        .addConfig(GobblinClusterConfigurationKeys.WORK_UNIT_FILE_PATH, workUnitFilePath)
+        .addConfig(ConfigurationKeys.JOB_NAME_KEY, this.jobContext.getJobName())
+        .addConfig(ConfigurationKeys.JOB_ID_KEY, this.jobContext.getJobId())
+        .addConfig(ConfigurationKeys.TASK_ID_KEY, workUnit.getId())
+        .addConfig(GobblinClusterConfigurationKeys.TASK_SUCCESS_OPTIONAL_KEY, "true")
+        .build();
+    log.info("taskConfig={}", taskConfig);
     workUnitToHelixConfig.put(workUnit.getId(), taskConfig);
     return taskConfig;
   }
