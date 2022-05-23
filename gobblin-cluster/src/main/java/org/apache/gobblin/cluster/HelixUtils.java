@@ -213,7 +213,11 @@ public class HelixUtils {
       helixTaskDriver.deleteTask(workFlowName, jobName, taskID);
     } catch (Exception e) {
       e.printStackTrace();
-      return !helixTaskDriver.getJobConfig(TaskUtil.getNamespacedJobName(workFlowName, jobName)).getMapConfigs().containsKey(taskID);
+      Map<String, Map<String, String>> mapConfigs =
+          helixTaskDriver.getJobConfig(TaskUtil.getNamespacedJobName(workFlowName, jobName)).getMapConfigs();
+      log.info("Maybe failed to remove task. mapConfigs={}", mapConfigs);
+      log.error("stacktrace", e);
+      return !mapConfigs.containsKey(taskID);
     }
     return true;
   }
@@ -221,14 +225,27 @@ public class HelixUtils {
   protected static boolean addTaskToHelixJob(String workFlowName,
       String jobName, TaskConfig taskConfig, TaskDriver helixTaskDriver) {
     String taskId = taskConfig.getId();
+    double timeoutInMs = 600000; // 10 minutes
     try {
       log.info(String.format("try to add task %s to workflow %s, job %s", taskId, workFlowName, jobName));
+//      helixTaskDriver.addTask(workFlowName, jobName, taskConfig, 600000);
       helixTaskDriver.addTask(workFlowName, jobName, taskConfig);
     } catch (Exception e) {
       e.printStackTrace();
-      JobContext jobContext =
-          helixTaskDriver.getJobContext(TaskUtil.getNamespacedJobName(workFlowName, jobName));
-      return jobContext.getTaskIdPartitionMap().containsKey(taskId);
+      String nameSpaceJobName = TaskUtil.getNamespacedJobName(workFlowName, jobName);
+      JobContext jobContext = helixTaskDriver.getJobContext(nameSpaceJobName);
+      Set<String> taskIds = helixTaskDriver.getJobConfig(nameSpaceJobName).getMapConfigs().keySet();
+
+      log.info("Maybe failed to add task {}. taskIds={}, jobContext={}", taskId, taskIds, jobContext);
+      log.error("stacktrace", e);
+      Map<String, Integer> taskIdPartitionMap = jobContext.getTaskIdPartitionMap();
+
+      // NOTE: it seems like it doesn't show up in the task id partition map immediately on the second add, but it does
+      // on the first attempt
+      boolean inJobContext = taskIdPartitionMap.containsKey(taskId);
+      boolean inJobConfig = taskIds.contains(taskId);
+      log.info("inJobConfig={}, inJobContext={}, taskIdPartitionMap={}", inJobConfig, inJobContext, taskIdPartitionMap);
+      return inJobContext;
     }
     return true;
   }
