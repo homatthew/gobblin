@@ -16,15 +16,14 @@
  */
 package org.apache.gobblin.source.extractor.extract.kafka;
 
-import java.io.IOException;
-import java.util.concurrent.TimeUnit;
-
 import com.google.common.collect.EvictingQueue;
 import com.google.common.eventbus.EventBus;
 import com.typesafe.config.Config;
-
+import java.io.IOException;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
-
 import org.apache.gobblin.annotation.Alias;
 import org.apache.gobblin.broker.SharedResourcesBrokerFactory;
 import org.apache.gobblin.commit.CommitStep;
@@ -58,6 +57,8 @@ public class KafkaIngestionHealthCheck implements CommitStep {
   private final EvictingQueue<Long> ingestionLatencies;
   private final EvictingQueue<Double> consumptionRateMBps;
   private final boolean increasingLatencyCheckEnabled;
+  private final Set<KafkaPartition> topicPartitions;
+  private final boolean isDynamicWorkAllocationEnabled;
 
   public KafkaIngestionHealthCheck(Config config, KafkaExtractorStatsTracker statsTracker) {
     this.config = config;
@@ -68,6 +69,8 @@ public class KafkaIngestionHealthCheck implements CommitStep {
     this.increasingLatencyCheckEnabled = ConfigUtils.getBoolean(config, KAFKA_INGESTION_HEALTH_CHECK_INCREASING_LATENCY_CHECK_ENABLED_KEY, DEFAULT_KAFKA_INGESTION_HEALTH_CHECK_INCREASING_LATENCY_CHECK_ENABLED);
     this.ingestionLatencies = EvictingQueue.create(this.slidingWindowSize);
     this.consumptionRateMBps = EvictingQueue.create(this.slidingWindowSize);
+    this.topicPartitions = KafkaStreamingExtractor.getTopicPartitionsFromWorkUnit(config).stream().collect(Collectors.toSet());
+    this.isDynamicWorkAllocationEnabled = topicPartitions.contains("PageViewEvent-1");
     EventBus eventBus;
     try {
       eventBus = EventBusFactory.get(ContainerHealthCheckFailureEvent.CONTAINER_HEALTH_CHECK_EVENT_BUS_NAME,

@@ -17,6 +17,15 @@
 
 package org.apache.gobblin.source.extractor.extract.kafka;
 
+import com.codahale.metrics.Gauge;
+import com.codahale.metrics.Metric;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.AtomicDouble;
+import com.google.gson.JsonElement;
+import com.typesafe.config.Config;
 import java.io.IOException;
 import java.util.AbstractMap;
 import java.util.ArrayList;
@@ -32,23 +41,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
-import org.apache.avro.Schema;
-
-import com.codahale.metrics.Gauge;
-import com.codahale.metrics.Metric;
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
-import com.google.common.util.concurrent.AtomicDouble;
-import com.google.gson.JsonElement;
-
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
-
+import org.apache.avro.Schema;
 import org.apache.gobblin.commit.CommitStep;
 import org.apache.gobblin.configuration.ConfigurationKeys;
 import org.apache.gobblin.configuration.State;
@@ -74,10 +71,9 @@ import org.apache.gobblin.util.ClustersNames;
 import org.apache.gobblin.util.ConfigUtils;
 import org.apache.gobblin.util.reflection.GobblinConstructorUtils;
 
-import static org.apache.gobblin.source.extractor.extract.kafka.KafkaProduceRateTracker.KAFKA_PARTITION_PRODUCE_RATE_KEY;
-import static org.apache.gobblin.source.extractor.extract.kafka.KafkaSource.DEFAULT_GOBBLIN_KAFKA_CONSUMER_CLIENT_FACTORY_CLASS;
-import static org.apache.gobblin.source.extractor.extract.kafka.KafkaSource.GOBBLIN_KAFKA_CONSUMER_CLIENT_FACTORY_CLASS;
-import static org.apache.gobblin.source.extractor.extract.kafka.workunit.packer.KafkaTopicGroupingWorkUnitPacker.NUM_PARTITIONS_ASSIGNED;
+import static org.apache.gobblin.source.extractor.extract.kafka.KafkaProduceRateTracker.*;
+import static org.apache.gobblin.source.extractor.extract.kafka.KafkaSource.*;
+import static org.apache.gobblin.source.extractor.extract.kafka.workunit.packer.KafkaTopicGroupingWorkUnitPacker.*;
 
 /**
  * An implementation of {@link org.apache.gobblin.source.extractor.Extractor}  which reads from Kafka and returns records .
@@ -313,6 +309,30 @@ public class KafkaStreamingExtractor<S> extends FlushingExtractor<S, DecodeableK
       topicPartitions.add(topicPartition);
     }
     return topicPartitions;
+  }
+
+  public static List<KafkaPartition> getTopicPartitionsFromWorkUnit(Config config) {
+    // what topic partitions are we responsible for?
+    List<KafkaPartition> topicPartitions = new ArrayList<>();
+
+    String topicNameProp = KafkaSource.TOPIC_NAME;
+    int numOfPartitions =
+        config.hasPath(NUM_PARTITIONS_ASSIGNED) ? config.getInt(NUM_PARTITIONS_ASSIGNED) : 0;
+
+    for (int i = 0; i < numOfPartitions; ++i) {
+      if (!config.hasPathOrNull(topicNameProp)) {
+        log.warn("There's no topic.name property being set in workunit which could be an illegal state");
+        break;
+      }
+      String topicName = config.getString(topicNameProp);
+
+      String partitionIdProp = KafkaSource.PARTITION_ID + "." + i;
+      int partitionId = config.getInt(partitionIdProp);
+      KafkaPartition topicPartition = new KafkaPartition.Builder().withTopicName(topicName).withId(partitionId).build();
+      topicPartitions.add(topicPartition);
+    }
+    return topicPartitions;
+
   }
 
   /**

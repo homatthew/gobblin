@@ -41,5 +41,7 @@ public enum HelixMessageSubTypes {
   /**
    * This type is for messages sent when the file storing the delegation token has been updated.
    */
-  TOKEN_FILE_UPDATED
+  TOKEN_FILE_UPDATED,
+
+  HEALTH
 }
