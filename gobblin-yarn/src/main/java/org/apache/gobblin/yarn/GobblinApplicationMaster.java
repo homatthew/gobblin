@@ -188,6 +188,13 @@ public class GobblinApplicationMaster extends GobblinClusterManager {
           HelixTaskResult helixTaskResult = new HelixTaskResult();
           helixTaskResult.setSuccess(true);
           return helixTaskResult;
+        } else if (messageSubType.equalsIgnoreCase(HelixMessageSubTypes.HEALTH.toString())) {
+          LOGGER.info("mho-ufk-test: Handling message " + messageSubType);
+          HelixHealthMessage msg = new HelixHealthMessage(this._message);
+          LOGGER.info("mho-ufk-test: the AM received a health message. instanceId={}", msg.getInstanceId());
+          HelixTaskResult helixTaskResult = new HelixTaskResult();
+          helixTaskResult.setSuccess(true);
+          return helixTaskResult;
         }
 
         throw new IllegalArgumentException(String.format("Unknown %s message subtype: %s",

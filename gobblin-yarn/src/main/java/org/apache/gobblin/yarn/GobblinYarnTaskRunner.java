@@ -17,19 +17,36 @@
 
 package org.apache.gobblin.yarn;
 
+import com.google.common.base.Optional;
+import com.google.common.base.Strings;
+import com.google.common.util.concurrent.Service;
+import com.typesafe.config.Config;
+import com.typesafe.config.ConfigFactory;
+import com.typesafe.config.ConfigValueFactory;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
+import org.apache.gobblin.cluster.GobblinClusterConfigurationKeys;
+import org.apache.gobblin.cluster.GobblinClusterUtils;
+import org.apache.gobblin.cluster.GobblinHelixMessagingService;
+import org.apache.gobblin.cluster.GobblinTaskRunner;
+import org.apache.gobblin.cluster.HelixMessageSubTypes;
+import org.apache.gobblin.util.JvmUtils;
+import org.apache.gobblin.util.logs.Log4jConfigurationHelper;
+import org.apache.gobblin.util.logs.LogCopier;
+import org.apache.gobblin.yarn.event.DelegationTokenUpdatedEvent;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.yarn.api.ApplicationConstants;
 import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.util.ConverterUtils;
+import org.apache.helix.ClusterMessagingService;
+import org.apache.helix.Criteria;
+import org.apache.helix.InstanceType;
 import org.apache.helix.NotificationContext;
 import org.apache.helix.messaging.handling.HelixTaskResult;
 import org.apache.helix.messaging.handling.MessageHandler;
@@ -37,21 +54,6 @@ import org.apache.helix.messaging.handling.MultiTypeMessageHandlerFactory;
 import org.apache.helix.model.Message;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.base.Optional;
-import com.google.common.base.Strings;
-import com.google.common.util.concurrent.Service;
-import com.typesafe.config.Config;
-import com.typesafe.config.ConfigFactory;
-import com.typesafe.config.ConfigValueFactory;
-
-import org.apache.gobblin.cluster.GobblinClusterConfigurationKeys;
-import org.apache.gobblin.cluster.GobblinClusterUtils;
-import org.apache.gobblin.cluster.GobblinTaskRunner;
-import org.apache.gobblin.util.JvmUtils;
-import org.apache.gobblin.util.logs.Log4jConfigurationHelper;
-import org.apache.gobblin.util.logs.LogCopier;
-import org.apache.gobblin.yarn.event.DelegationTokenUpdatedEvent;
 
 
 public class GobblinYarnTaskRunner extends GobblinTaskRunner {
@@ -66,6 +68,25 @@ public class GobblinYarnTaskRunner extends GobblinTaskRunner {
         .withValue(GobblinYarnConfigurationKeys.CONTAINER_NUM_KEY,
             ConfigValueFactory.fromAnyRef(YarnHelixUtils.getContainerNum(containerId.toString()))), appWorkDirOptional);
   }
+
+  @Override
+  public void sendMessageToAM(String instanceId) {
+    Criteria criteria = new Criteria();
+    // criteria.setInstanceName("GobblinClusterManager");
+    criteria.setInstanceName("%");
+    criteria.setResource("GobblinClusterManager");
+    criteria.setPartition("%");
+    criteria.setPartitionState("%");
+    criteria.setRecipientInstanceType(InstanceType.PARTICIPANT);
+    criteria.setSessionSpecific(true);
+
+    HelixHealthMessage msg = new HelixHealthMessage(instanceId);
+
+    ClusterMessagingService messagingService = new GobblinHelixMessagingService(getJobHelixManager());
+    LOGGER.info("mho-ufk-test: sending a message to the AM: instanceId={}", msg.getInstanceId());
+    messagingService.send(criteria, msg);
+  }
+
 
   @Override
   public List<Service> getServices() {
@@ -151,6 +172,13 @@ public class GobblinYarnTaskRunner extends GobblinTaskRunner {
           HelixTaskResult helixTaskResult = new HelixTaskResult();
           helixTaskResult.setSuccess(true);
           return helixTaskResult;
+        } else if (messageSubType.equalsIgnoreCase(HelixMessageSubTypes.HEALTH.toString())) {
+          LOGGER.info("mho-ufk-test: Handling message " + messageSubType);
+          HelixHealthMessage msg = new HelixHealthMessage(this._message);
+          LOGGER.info("mho-ufk-test: the task runner received a health message. instanceId={}", msg.getInstanceId());
+          HelixTaskResult helixTaskResult = new HelixTaskResult();
+          helixTaskResult.setSuccess(true);
+          return helixTaskResult;
         }
 
         throw new IllegalArgumentException(String
@@ -196,6 +224,10 @@ public class GobblinYarnTaskRunner extends GobblinTaskRunner {
       String applicationId = cmd.getOptionValue(GobblinClusterConfigurationKeys.APPLICATION_ID_OPTION_NAME);
       String helixInstanceName = cmd.getOptionValue(GobblinClusterConfigurationKeys.HELIX_INSTANCE_NAME_OPTION_NAME);
       String helixInstanceTags = cmd.getOptionValue(GobblinClusterConfigurationKeys.HELIX_INSTANCE_TAGS_OPTION_NAME);
+      String dynamicWorkTag = cmd.getOptionValue(GobblinClusterConfigurationKeys.HELIX_INSTANCE_TAGS_OPTION_NAME);
+      // source.getWorkUnits()
+      // foreach workunit
+      //   workunit.dynamicWorkTag = UUID.getRandom()
 
       Config config = ConfigFactory.load();
       if (!Strings.isNullOrEmpty(helixInstanceTags)) {

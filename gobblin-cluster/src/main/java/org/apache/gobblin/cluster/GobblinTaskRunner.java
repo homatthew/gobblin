@@ -327,6 +327,8 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
     return newConf;
   }
 
+  public void sendMessageToAM(String instanceId) { }
+
   /**
    * Start this {@link GobblinTaskRunner} instance.
    */
@@ -338,6 +340,7 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
     addShutdownHook();
 
     connectHelixManagerWithRetry();
+    sendMessageToAM(helixInstanceName);
 
     TaskRunnerSuiteBase suite;
     try {
