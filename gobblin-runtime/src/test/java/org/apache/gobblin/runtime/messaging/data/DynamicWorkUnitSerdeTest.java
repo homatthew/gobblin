@@ -14,31 +14,51 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gobblin.runtime.messaging;
+package org.apache.gobblin.runtime.messaging.data;
 
-import com.google.gson.JsonElement;
+import com.google.gson.Gson;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import org.apache.gobblin.runtime.messaging.data.DynamicWorkUnitMessage;
-import org.apache.gobblin.runtime.messaging.data.SplitWorkUnitMessage;
+import lombok.extern.java.Log;
 import org.testng.annotations.Test;
 
 import static org.testng.AssertJUnit.*;
 
-
+@Log
 @Test
-public class DynamicWorkUnitUtilsTest {
+public class DynamicWorkUnitSerdeTest {
   @Test
   public void testSerialization() {
     DynamicWorkUnitMessage msg = SplitWorkUnitMessage.builder()
-        .workUnitId("workunitId")
+        .workUnitId("workUnitId")
         .laggingTopicPartitions(Arrays.asList("topic-1","topic-2"))
         .build();
 
-    JsonElement serializedMsg = msg.toJson();
+    byte[] serializedMsg = DynamicWorkUnitSerde.serialize(msg);
 
-    DynamicWorkUnitMessage deserializedMsg = DynamicWorkUnitUtils.fromJson(serializedMsg);
+    DynamicWorkUnitMessage deserializedMsg = DynamicWorkUnitSerde.deserialize(serializedMsg);
 
     assertTrue(deserializedMsg instanceof SplitWorkUnitMessage);
     assertEquals(msg, deserializedMsg);
+  }
+
+  @Test(expectedExceptions = DynamicWorkUnitDeserializationException.class)
+  public void testSerializationFails() {
+    DynamicWorkUnitMessage msg = SplitWorkUnitMessage.builder()
+        .workUnitId("workUnitId")
+        .laggingTopicPartitions(Arrays.asList("topic-1","topic-2"))
+        .build();
+
+    // Serializing without using the DynamicWorkUnitSerde#serialize method should cause a runtime exception
+    // when deserializing
+    Gson gson = new Gson();
+    byte[] serializedMsg = gson.toJson(msg).getBytes(StandardCharsets.UTF_8);
+
+    try {
+      DynamicWorkUnitMessage failsToDeserialize = DynamicWorkUnitSerde.deserialize(serializedMsg);
+    } catch(DynamicWorkUnitDeserializationException e) {
+      log.info("Successfully threw exception when failing to deserialize. exception=" + e);
+      throw e;
+    }
   }
 }

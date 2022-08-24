@@ -16,6 +16,7 @@
  */
 package org.apache.gobblin.runtime.messaging;
 
+import lombok.AllArgsConstructor;
 import org.apache.gobblin.runtime.messaging.data.DynamicWorkUnitMessage;
 
 
@@ -23,10 +24,18 @@ import org.apache.gobblin.runtime.messaging.data.DynamicWorkUnitMessage;
  * Abstraction for sending {@link DynamicWorkUnitMessage} that will be consumed by a {@link DynamicWorkUnitConsumer}
  * <br><br>
  *
- * A {@link DynamicWorkUnitProducer} will typically have a tight coupling with the {@link DynamicWorkUnitConsumer}
- * since the consumer needs to understand how to receive the message (i.e. via Helix, hdfs, Kafka, etc). But the
- * {@link DynamicWorkUnitMessage} POJO sent is the same the regardless of implementation
+ * A {@link DynamicWorkUnitProducer} has a tight coupling with the {@link DynamicWorkUnitConsumer}
+ * since both producer / consumer should be using the same {@link MessageBuffer} (i.e. via Helix, hdfs, Kafka, etc).
  */
-public interface DynamicWorkUnitProducer {
-  void produce(DynamicWorkUnitMessage message);
+@AllArgsConstructor
+public class DynamicWorkUnitProducer {
+  protected MessageBuffer<DynamicWorkUnitMessage> buffer;
+
+  /**
+   * Produce a message to be consumed by a {@link DynamicWorkUnitMessage}
+   * @param message Message to be sent over the message buffer
+   */
+  public void produce(DynamicWorkUnitMessage message) {
+    buffer.add(message);
+  }
 }

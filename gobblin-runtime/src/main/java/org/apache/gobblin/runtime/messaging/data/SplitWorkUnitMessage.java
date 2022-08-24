@@ -16,20 +16,24 @@
  */
 package org.apache.gobblin.runtime.messaging.data;
 
-import com.google.gson.JsonElement;
 import java.util.List;
 import lombok.Builder;
 import lombok.Value;
-import org.apache.gobblin.runtime.messaging.DynamicWorkUnitUtils;
 
+/**
+ * Message for requesting the AM to split a workunit into multiple workunits. This message signals to the AM that the
+ * specified subset of topic partitions are lagging in the specified workunit.
+ */
 @Value
 @Builder
 public class SplitWorkUnitMessage implements DynamicWorkUnitMessage {
+  /**
+   * Workunit ID of the work unit that should be split into multiple smaller workunits
+   */
   String workUnitId;
-  List<String> laggingTopicPartitions;
 
-  @Override
-  public JsonElement toJson() {
-    return DynamicWorkUnitUtils.toJson(this);
-  }
+  /**
+   * Topic partitions that have been lagging in the workunit
+   */
+  List<String> laggingTopicPartitions;
 }

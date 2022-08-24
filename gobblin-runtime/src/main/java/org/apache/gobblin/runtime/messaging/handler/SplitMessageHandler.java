@@ -22,8 +22,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 
+/**
+ * Message for requesting the AM to split a WorkUnit into multiple WorkUnits. This message signals to the AM that the
+ * specified subset of topic partitions are lagging in the specified workunit.
+ */
 public class SplitMessageHandler implements DynamicWorkUnitMessage.Handler {
-  Logger LOG = LoggerFactory.getLogger(SplitMessageHandler.class);
+  private final Logger LOG = LoggerFactory.getLogger(SplitMessageHandler.class);
 
   @Override
   public void handle(DynamicWorkUnitMessage message) {
@@ -33,7 +37,7 @@ public class SplitMessageHandler implements DynamicWorkUnitMessage.Handler {
   }
 
   private void handleSplit(SplitWorkUnitMessage message) {
-    //TODO: Recompute workunit based on message
+    //TODO: GOBBLIN-1688 Recompute workunit based on message.
     LOG.info("Handling {}, contents={}", SplitWorkUnitMessage.class.getSimpleName(), message);
   }
 }

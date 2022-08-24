@@ -16,22 +16,15 @@
  */
 package org.apache.gobblin.runtime.messaging.data;
 
-import com.google.gson.JsonElement;
 import gobblin.source.workunit.WorkUnit;
 
 
 public interface DynamicWorkUnitMessage {
   /**
-   * The workunit Id this message is associated with. Same as {@link WorkUnit#getId()}
-   * @return workunit Id
+   * The WorkUnit Id this message is associated with. Same as {@link WorkUnit#getId()}
+   * @return WorkUnit Id
    */
   String getWorkUnitId();
-
-  /**
-   * Serialize this class to Json
-   * @return serialized object
-   */
-  JsonElement toJson();
 
   /**
    * Handler for consuming messages and implementing business logic

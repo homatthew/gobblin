@@ -16,9 +16,10 @@
  */
 package org.apache.gobblin.runtime.messaging;
 
-import java.time.Duration;
-import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.apache.gobblin.runtime.messaging.data.DynamicWorkUnitMessage;
 
 
@@ -27,15 +28,38 @@ import org.apache.gobblin.runtime.messaging.data.DynamicWorkUnitMessage;
  * The class is responsible for fetching the messages from the messaging service. All business logic
  * should be done in the {@link DynamicWorkUnitMessage.Handler}.<br><br>
  *
- * For polling implementations (e.g. HDFS or Kafka), you can use the
- * {@link DynamicWorkUnitUtils#runInBackground(Runnable, Duration)} to call the
+ * This consumers can be used to poll a message buffer (e.g. HDFS or Kafka) using
+ * {@link ScheduledExecutorService#scheduleAtFixedRate(Runnable, long, long, TimeUnit)} to call the
  * {@link Runnable#run()} method periodically in a background thread <br><br>
  *
- * Push based implementations (e.g. helix or zk) can omit using this method and instead setup the callback methods
- * without spawning a background thread
+ * Each new {@link DynamicWorkUnitMessage} is passed to a {@link DynamicWorkUnitMessage.Handler}
+ * and will call {@link DynamicWorkUnitMessage.Handler#handle(DynamicWorkUnitMessage)}
  */
-public abstract class DynamicWorkUnitConsumer implements Runnable {
-  protected List<DynamicWorkUnitMessage.Handler> handlers = new ArrayList<>();
+public class DynamicWorkUnitConsumer implements Runnable {
+  protected MessageBuffer<DynamicWorkUnitMessage> buffer;
+  protected List<DynamicWorkUnitMessage.Handler> handlers;
+
+  public DynamicWorkUnitConsumer(
+      MessageBuffer<DynamicWorkUnitMessage> buffer,
+      Collection<DynamicWorkUnitMessage.Handler> handlers) {
+    this.buffer = buffer;
+    for(DynamicWorkUnitMessage.Handler handler : handlers) {
+      handlers.add(handler);
+    }
+  }
+
+  /**
+   * Fetches all unread messages from sent by {@link DynamicWorkUnitProducer} and
+   * calls {@link DynamicWorkUnitMessage.Handler#handle(DynamicWorkUnitMessage)} method for each handler added via
+   * {@link DynamicWorkUnitConsumer#DynamicWorkUnitConsumer(MessageBuffer, Collection)} or
+   * {@link DynamicWorkUnitConsumer#addHandler(DynamicWorkUnitMessage.Handler)}
+   */
+  public void run() {
+    List<DynamicWorkUnitMessage> messages = buffer.get();
+    for (DynamicWorkUnitMessage msg : messages) {
+      handleMessage(msg);
+    }
+  }
 
   protected void handleMessage(DynamicWorkUnitMessage msg) {
     for (DynamicWorkUnitMessage.Handler handler : handlers) {
