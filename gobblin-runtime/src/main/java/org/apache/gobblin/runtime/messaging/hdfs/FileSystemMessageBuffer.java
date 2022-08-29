@@ -16,69 +16,26 @@
  */
 package org.apache.gobblin.runtime.messaging.hdfs;
 
-import com.google.gson.JsonElement;
-import java.io.IOException;
-import java.util.Collection;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
+import java.util.List;
+import org.apache.gobblin.runtime.messaging.MessageBuffer;
+import org.apache.gobblin.runtime.messaging.data.DynamicWorkUnitMessage;
 import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 
 
 /**
- * Implements {@link FileSystem} based message buffer for sending {@link JsonElement} based messages. This buffer does
- * not guarantee FIFO and does not have any safeguards for concurrent readers / writers.
+ * Implements {@link FileSystem} based message buffer for sending and receiving {@link DynamicWorkUnitMessage}.
  */
-@AllArgsConstructor
-public class FileSystemMessageBuffer {
-  private final FileSystem fs;
-  private final Path dir;
+public class FileSystemMessageBuffer implements MessageBuffer<DynamicWorkUnitMessage> {
 
-  /**
-   * Write a {@link JsonElement} to the buffer
-   * @param message message to be written
-   * @return if the message was successfully persisted to {@link FileSystem}
-   */
-  public boolean add(JsonElement message) {
+  @Override
+  public boolean add(DynamicWorkUnitMessage item) {
     // STUB: TODO GOBBLIN-1685
-    return true;
+    return false;
   }
 
-  /**
-   * Get all messages from the buffer that have not been {@link AcknowledgeableMessage#ack()}
-   * @return list of messages that still need to be processed
-   */
-  public Collection<AcknowledgeableMessage> getUnacknowledgedMessages() {
+  @Override
+  public List<DynamicWorkUnitMessage> get() {
     // STUB: TODO GOBBLIN-1685
     return null;
-  }
-
-  private boolean delete(Path filePath) throws IOException {
-    // STUB: TODO GOBBLIN-1685
-    return true;
-  }
-
-  /**
-   * Wrapper for {@link JsonElement} messages on disk that provides api's for an acknowledgement after processing
-   * (i.e. cleaning up the file on disk after done processing)
-   */
-  @AllArgsConstructor
-  public static class AcknowledgeableMessage {
-    @Getter
-    private JsonElement message;
-    private Path messagePath;
-    private FileSystemMessageBuffer messageBuffer;
-
-    /**
-     * Clean up underlying message state. Meant to be called after the message has been processed.
-     * @return message is successfully deleted
-     */
-    public boolean ack() {
-      try {
-        return messageBuffer.delete(messagePath);
-      } catch (IOException e) {
-        throw new RuntimeException(e);
-      }
-    }
   }
 }
