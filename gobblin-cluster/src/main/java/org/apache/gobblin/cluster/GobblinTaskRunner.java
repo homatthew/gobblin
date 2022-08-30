@@ -103,6 +103,7 @@ import org.apache.gobblin.util.HadoopUtils;
 import org.apache.gobblin.util.JvmUtils;
 import org.apache.gobblin.util.TaskEventMetadataUtils;
 import org.apache.gobblin.util.event.ContainerHealthCheckFailureEvent;
+import org.apache.gobblin.util.event.MetadataBasedEvent;
 import org.apache.gobblin.util.eventbus.EventBusFactory;
 import org.apache.gobblin.util.reflection.GobblinConstructorUtils;
 
@@ -757,7 +758,7 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
   }
 
   @Subscribe
-  public void handleContainerHealthCheckFailureEvent(ContainerHealthCheckFailureEvent event) {
+  public void handleContainerHealthCheckFailureEvent(ContainerHealthCheckFailureEvent event) throws IOException {
     logger.error("Received {} from: {}", event.getClass().getSimpleName(), event.getClassName());
     logger.error("Submitting a ContainerHealthCheckFailureEvent..");
     submitEvent(event);
@@ -766,9 +767,9 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
     GobblinTaskRunner.this.stop();
   }
 
-  private void submitEvent(ContainerHealthCheckFailureEvent event) {
+  private void submitEvent(MetadataBasedEvent event) {
     EventSubmitter eventSubmitter = new EventSubmitter.Builder(RootMetricContext.get(), getClass().getPackage().getName()).build();
-    GobblinEventBuilder eventBuilder = new GobblinEventBuilder(event.getClass().getSimpleName());
+    GobblinEventBuilder eventBuilder = new GobblinEventBuilder(event.getName());
     State taskState = ConfigUtils.configToState(event.getConfig());
     //Add task metadata such as Helix taskId, containerId, and workflowId if configured
     TaskEventMetadataGenerator taskEventMetadataGenerator = TaskEventMetadataUtils.getTaskEventMetadataGenerator(taskState);

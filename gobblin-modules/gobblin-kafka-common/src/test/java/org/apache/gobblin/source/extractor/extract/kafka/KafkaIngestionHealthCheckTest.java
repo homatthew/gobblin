@@ -63,7 +63,7 @@ public class KafkaIngestionHealthCheckTest {
     this.countDownLatch = new CountDownLatch(1);
     Config config = ConfigFactory.empty().withValue(KafkaTopicGroupingWorkUnitPacker.CONTAINER_CAPACITY_KEY,
         ConfigValueFactory.fromAnyRef(5))
-        .withValue(KafkaIngestionHealthCheck.KAFKA_INGESTION_HEALTH_CHECK_LATENCY_THRESHOLD_MINUTES_KEY, ConfigValueFactory.fromAnyRef(5));
+        .withValue(KafkaHealthModel.KAFKA_INGESTION_HEALTH_LATENCY_THRESHOLD_MINUTES_KEY, ConfigValueFactory.fromAnyRef(5));
 
     KafkaExtractorStatsTracker extractorStatsTracker = Mockito.mock(KafkaExtractorStatsTracker.class);
     Mockito.when(extractorStatsTracker.getMaxIngestionLatency(TimeUnit.MINUTES))
@@ -98,7 +98,7 @@ public class KafkaIngestionHealthCheckTest {
     this.countDownLatch.await(10, TimeUnit.MILLISECONDS);
     Assert.assertEquals(this.countDownLatch.getCount(), 1);
 
-    config = config.withValue(KafkaIngestionHealthCheck.KAFKA_INGESTION_HEALTH_CHECK_INCREASING_LATENCY_CHECK_ENABLED_KEY, ConfigValueFactory.fromAnyRef(false));
+    config = config.withValue(KafkaHealthModel.KAFKA_INGESTION_HEALTH_INCREASING_LATENCY_CHECK_ENABLED_KEY, ConfigValueFactory.fromAnyRef(false));
     extractorStatsTracker = Mockito.mock(KafkaExtractorStatsTracker.class);
     Mockito.when(extractorStatsTracker.getMaxIngestionLatency(TimeUnit.MINUTES))
         .thenReturn(10L)
@@ -121,8 +121,8 @@ public class KafkaIngestionHealthCheckTest {
 
     Config config = ConfigFactory.empty().withValue(KafkaTopicGroupingWorkUnitPacker.CONTAINER_CAPACITY_KEY,
         ConfigValueFactory.fromAnyRef(5))
-        .withValue(KafkaIngestionHealthCheck.KAFKA_INGESTION_HEALTH_CHECK_LATENCY_THRESHOLD_MINUTES_KEY, ConfigValueFactory.fromAnyRef(5))
-        .withValue(KafkaIngestionHealthCheck.KAFKA_INGESTION_HEALTH_CHECK_INCREASING_LATENCY_CHECK_ENABLED_KEY, ConfigValueFactory.fromAnyRef(false));
+        .withValue(KafkaHealthModel.KAFKA_INGESTION_HEALTH_LATENCY_THRESHOLD_MINUTES_KEY, ConfigValueFactory.fromAnyRef(5))
+        .withValue(KafkaHealthModel.KAFKA_INGESTION_HEALTH_INCREASING_LATENCY_CHECK_ENABLED_KEY, ConfigValueFactory.fromAnyRef(false));
 
     KafkaExtractorStatsTracker extractorStatsTracker = Mockito.mock(KafkaExtractorStatsTracker.class);
     Mockito.when(extractorStatsTracker.getMaxIngestionLatency(TimeUnit.MINUTES))

@@ -29,7 +29,7 @@ import com.typesafe.config.Config;
 
 import lombok.Getter;
 
-public class ContainerHealthCheckFailureEvent {
+public class ContainerHealthCheckFailureEvent implements MetadataBasedEvent {
   public static final String CONTAINER_HEALTH_CHECK_EVENT_BUS_NAME = "ContainerHealthCheckEventBus";
 
   // Context of emission of this event, like the task's state.
@@ -48,6 +48,11 @@ public class ContainerHealthCheckFailureEvent {
   public ContainerHealthCheckFailureEvent(Config config, String className) {
     this.config = config;
     this.className = className;
+  }
+
+  @Override
+  public String getName() {
+    return ContainerHealthCheckFailureEvent.class.getName();
   }
 
   public void addMetadata(String key, String value) {
