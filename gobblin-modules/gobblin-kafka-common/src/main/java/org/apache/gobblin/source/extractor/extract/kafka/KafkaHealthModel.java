@@ -16,9 +16,13 @@
  */
 package org.apache.gobblin.source.extractor.extract.kafka;
 
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.EvictingQueue;
 import com.typesafe.config.Config;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.gobblin.annotation.Alias;
@@ -56,6 +60,7 @@ public class KafkaHealthModel {
   private final EvictingQueue<Long> ingestionLatencies;
   private final EvictingQueue<Double> consumptionRateMBps;
   private final boolean increasingLatencyCheckEnabled;
+  private final Cache<KafkaPartition, Void> laggingTopicPartitions;
 
   public KafkaHealthModel(Config config, KafkaExtractorStatsTracker statsTracker) {
     this.config = config;
@@ -73,6 +78,9 @@ public class KafkaHealthModel {
         DEFAULT_KAFKA_INGESTION_HEALTH_MODEL_INCREASING_LATENCY_CHECK_ENABLED);
     this.ingestionLatencies = EvictingQueue.create(this.slidingWindowSize);
     this.consumptionRateMBps = EvictingQueue.create(this.slidingWindowSize);
+    this.laggingTopicPartitions = CacheBuilder.newBuilder()
+        .expireAfterWrite(this.slidingWindowSize, TimeUnit.MINUTES)
+        .build();
     this.statsTracker = statsTracker;
   }
 
@@ -142,5 +150,9 @@ public class KafkaHealthModel {
         .filter(consumptionRate -> consumptionRate >= 0.0)
         .max()
         .orElse(0.0);
+  }
+
+  public List<KafkaPartition> getLaggingTopicPartitions() {
+    return laggingTopicPartitions.asMap().keySet().stream().collect(Collectors.toList());
   }
 }

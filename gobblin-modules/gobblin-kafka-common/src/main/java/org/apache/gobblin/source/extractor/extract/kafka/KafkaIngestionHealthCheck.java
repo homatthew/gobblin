@@ -23,8 +23,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.gobblin.annotation.Alias;
 import org.apache.gobblin.broker.SharedResourcesBrokerFactory;
 import org.apache.gobblin.commit.CommitStep;
+import org.apache.gobblin.util.ConfigUtils;
 import org.apache.gobblin.util.event.ContainerHealthCheckFailureEvent;
 import org.apache.gobblin.util.event.MetadataBasedEvent;
+import org.apache.gobblin.util.event.WorkUnitLaggingEvent;
 import org.apache.gobblin.util.eventbus.EventBusFactory;
 
 
@@ -34,11 +36,15 @@ public class KafkaIngestionHealthCheck implements CommitStep {
   private final Config config;
   private final EventBus eventBus;
   private final KafkaHealthModel healthModel;
+  private final boolean dynamicWorkUnitEnabled;
 
   public KafkaIngestionHealthCheck(Config config, KafkaExtractorStatsTracker statsTracker) {
     this.config = config;
     this.healthModel = new KafkaHealthModel(config, statsTracker);
-    this.eventBus = getEventBus(ContainerHealthCheckFailureEvent.CONTAINER_HEALTH_CHECK_EVENT_BUS_NAME);
+    this.dynamicWorkUnitEnabled = ConfigUtils.getBoolean(config, "isDynamicWorkUnitEnabled", false);
+    this.eventBus = dynamicWorkUnitEnabled ?
+        getEventBus(WorkUnitLaggingEvent.WORK_UNIT_LAGGING_EVENT_BUS_NAME) :
+        getEventBus(ContainerHealthCheckFailureEvent.CONTAINER_HEALTH_CHECK_EVENT_BUS_NAME);
   }
 
   /**
@@ -87,7 +93,22 @@ public class KafkaIngestionHealthCheck implements CommitStep {
   }
 
   private void onFailure() {
-    selfKillContainer();
+    if (dynamicWorkUnitEnabled) {
+      produceDynamicWorkUnitUpdateEvent();
+    } else {
+      selfKillContainer();
+    }
+  }
+
+  private void produceDynamicWorkUnitUpdateEvent() {
+    if (this.eventBus != null) {
+      log.info("Posting {} message to EventBus", WorkUnitLaggingEvent.class.getSimpleName());
+      WorkUnitLaggingEvent event = new WorkUnitLaggingEvent(this.config, getClass().getName());
+      event.addMetadata(WorkUnitLaggingEvent.WORK_UNIT_LAGGING_TOPIC_PARTITION_KEY,
+          healthModel.getLaggingTopicPartitions().toString());
+      addIngestionMetrics(event);
+      this.eventBus.post(event);
+    }
   }
 
   /**

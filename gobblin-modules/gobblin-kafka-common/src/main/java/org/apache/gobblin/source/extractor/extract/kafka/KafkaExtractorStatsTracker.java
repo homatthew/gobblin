@@ -123,7 +123,7 @@ public class KafkaExtractorStatsTracker {
     }
     this.taskEventMetadataGenerator = TaskEventMetadataUtils.getTaskEventMetadataGenerator(workUnitState);
     if (state.getPropAsBoolean(KafkaSource.OBSERVED_LATENCY_MEASUREMENT_ENABLED, KafkaSource.DEFAULT_OBSERVED_LATENCY_MEASUREMENT_ENABLED)) {
-      this.observedLatencyHistogram = buildobservedLatencyHistogram(state);
+      this.observedLatencyHistogram = buildObservedLatencyHistogram(state);
     } else {
       this.observedLatencyHistogram = null;
     }
@@ -137,7 +137,7 @@ public class KafkaExtractorStatsTracker {
    * @param state
    * @return a non auto-resizing {@link Histogram} with a bounded range and precision.
    */
-  private Histogram buildobservedLatencyHistogram(WorkUnitState state) {
+  private Histogram buildObservedLatencyHistogram(WorkUnitState state) {
     this.maxPossibleLatency = TimeUnit.HOURS.toMillis(state.getPropAsInt(KafkaSource.MAX_POSSIBLE_OBSERVED_LATENCY_IN_HOURS,
         KafkaSource.DEFAULT_MAX_POSSIBLE_OBSERVED_LATENCY_IN_HOURS));
     int numSignificantDigits = state.getPropAsInt(KafkaSource.OBSERVED_LATENCY_PRECISION, KafkaSource.DEFAULT_OBSERVED_LATENCY_PRECISION);

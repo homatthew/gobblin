@@ -96,6 +96,9 @@ import org.apache.gobblin.metrics.event.EventSubmitter;
 import org.apache.gobblin.metrics.event.GobblinEventBuilder;
 import org.apache.gobblin.metrics.reporter.util.MetricReportUtils;
 import org.apache.gobblin.runtime.api.TaskEventMetadataGenerator;
+import org.apache.gobblin.runtime.messaging.DynamicWorkUnitProducer;
+import org.apache.gobblin.runtime.messaging.data.SplitWorkUnitMessage;
+import org.apache.gobblin.runtime.messaging.hdfs.FileSystemMessageBuffer;
 import org.apache.gobblin.util.ClassAliasResolver;
 import org.apache.gobblin.util.ConfigUtils;
 import org.apache.gobblin.util.FileUtils;
@@ -104,6 +107,7 @@ import org.apache.gobblin.util.JvmUtils;
 import org.apache.gobblin.util.TaskEventMetadataUtils;
 import org.apache.gobblin.util.event.ContainerHealthCheckFailureEvent;
 import org.apache.gobblin.util.event.MetadataBasedEvent;
+import org.apache.gobblin.util.event.WorkUnitLaggingEvent;
 import org.apache.gobblin.util.eventbus.EventBusFactory;
 import org.apache.gobblin.util.reflection.GobblinConstructorUtils;
 
@@ -176,6 +180,7 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
   protected final FileSystem fs;
   protected final String applicationName;
   protected final String applicationId;
+  protected final String workUnitId;
   private final boolean isMetricReportingFailureFatal;
   private final boolean isEventReportingFailureFatal;
 
@@ -195,6 +200,7 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
 
     this.isTaskDriver = ConfigUtils.getBoolean(config, GobblinClusterConfigurationKeys.TASK_DRIVER_ENABLED,false);
     this.helixInstanceName = helixInstanceName;
+    this.workUnitId = config.getString(ConfigurationKeys.TASK_ID_KEY);
     this.taskRunnerId = taskRunnerId;
     this.applicationName = applicationName;
     this.applicationId = applicationId;
@@ -755,6 +761,22 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
                 code, type));
       }
     }
+  }
+
+  @Subscribe
+  public void handleWorkUnitLaggingEvent(WorkUnitLaggingEvent event) throws IOException {
+    logger.error("Received {} from: {}", event.getClass().getSimpleName(), event.getClassName());
+    logger.error("Submitting a {}.", WorkUnitLaggingEvent.class.getSimpleName());
+    submitEvent(event);
+
+    logger.error("Sending a request to the AM to split the workunit running on this TR into multiple units.");
+    FileSystemMessageBuffer buffer = new FileSystemMessageBuffer();
+    DynamicWorkUnitProducer producer = new DynamicWorkUnitProducer(buffer);
+    SplitWorkUnitMessage message = SplitWorkUnitMessage.builder()
+        .workUnitId(this.workUnitId)
+        .laggingTopicPartitions(event.getLaggingTopicPartitions())
+        .build();
+    buffer.add(message);
   }
 
   @Subscribe
