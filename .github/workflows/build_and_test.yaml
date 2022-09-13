@@ -22,9 +22,11 @@ on:
     # Publish only on `master`
     branches:
       - master
+      - helix-dynamic-workunit
   pull_request:
     branches:
       - master
+      - helix-dynamic-workunit
   release:
     types: [published, edited]
 
