@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+import java.util.stream.Collectors;
 import org.HdrHistogram.Histogram;
 import org.HdrHistogram.HistogramLogWriter;
 
@@ -168,13 +169,13 @@ public class KafkaExtractorStatsTracker {
     private long processedRecordCount;
     private long slaMissedRecordCount = -1L;
     private long partitionTotalSize;
-    private long decodeRecordTime;
+    private long decodeRecordTime; // decoding happens after reading
     private long fetchMessageBufferTime;
-    private long readRecordTime;
-    private long startFetchEpochTime;
+    private long readRecordTime; // time spent reading from kafka?
+    private long startFetchEpochTime; // fetch refers to getting from kafka?
     private long stopFetchEpochTime;
     private long lastSuccessfulRecordHeaderTimestamp;
-    private long minLogAppendTime = -1L;
+    private long minLogAppendTime = -1L; // append time is when added to kafka
     private long maxLogAppendTime = -1L;
   }
 
@@ -559,6 +560,14 @@ public class KafkaExtractorStatsTracker {
     double consumptionDurationSecs = ((double) (this.lastAggregateExtractorStats.getMaxStopFetchEpochTime() - this.lastAggregateExtractorStats
             .getMinStartFetchEpochTime())) / 1000;
     return this.lastAggregateExtractorStats.getNumBytesConsumed() / (consumptionDurationSecs * (1024 * 1024L));
+  }
+
+  /**
+   * Kinda expensive call lol
+   * @return
+   */
+  public Set<KafkaPartition> getTopHitters() {
+    return KafkaExtractorStats.getTopHitters(this.statsMap);
   }
 
   /**

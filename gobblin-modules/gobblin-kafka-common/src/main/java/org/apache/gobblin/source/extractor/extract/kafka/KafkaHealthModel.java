@@ -20,7 +20,7 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.EvictingQueue;
 import com.typesafe.config.Config;
-import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import lombok.Getter;
@@ -152,7 +152,8 @@ public class KafkaHealthModel {
         .orElse(0.0);
   }
 
-  public List<KafkaPartition> getLaggingTopicPartitions() {
-    return laggingTopicPartitions.asMap().keySet().stream().collect(Collectors.toList());
+  public Set<String> getLaggingTopicPartitions() {
+    return statsTracker.getTopHitters().stream().map(KafkaPartition::toString)
+        .collect(Collectors.toSet());
   }
 }

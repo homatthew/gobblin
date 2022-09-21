@@ -17,6 +17,23 @@
 
 package org.apache.gobblin.cluster;
 
+import com.github.rholder.retry.RetryException;
+import com.github.rholder.retry.Retryer;
+import com.github.rholder.retry.RetryerBuilder;
+import com.github.rholder.retry.StopStrategies;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Throwables;
+import com.google.common.collect.Lists;
+import com.google.common.eventbus.EventBus;
+import com.google.common.eventbus.Subscribe;
+import com.google.common.util.concurrent.MoreExecutors;
+import com.google.common.util.concurrent.Service;
+import com.google.common.util.concurrent.ServiceManager;
+import com.typesafe.config.Config;
+import com.typesafe.config.ConfigFactory;
+import com.typesafe.config.ConfigValueFactory;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -36,13 +53,42 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
+import org.apache.gobblin.annotation.Alpha;
+import org.apache.gobblin.broker.SharedResourcesBrokerFactory;
+import org.apache.gobblin.configuration.ConfigurationKeys;
+import org.apache.gobblin.configuration.State;
+import org.apache.gobblin.instrumented.StandardMetricsBridge;
+import org.apache.gobblin.metrics.GobblinMetrics;
+import org.apache.gobblin.metrics.MultiReporterException;
+import org.apache.gobblin.metrics.RootMetricContext;
+import org.apache.gobblin.metrics.event.EventSubmitter;
+import org.apache.gobblin.metrics.event.GobblinEventBuilder;
+import org.apache.gobblin.metrics.reporter.util.MetricReportUtils;
+import org.apache.gobblin.runtime.api.TaskEventMetadataGenerator;
+import org.apache.gobblin.runtime.messaging.DynamicWorkUnitProducer;
+import org.apache.gobblin.runtime.messaging.MessageBuffer;
+import org.apache.gobblin.runtime.messaging.data.DynamicWorkUnitMessage;
+import org.apache.gobblin.runtime.messaging.data.SplitWorkUnitMessage;
+import org.apache.gobblin.runtime.messaging.hdfs.FileSystemMessageBuffer;
+import org.apache.gobblin.util.ClassAliasResolver;
+import org.apache.gobblin.util.ConfigUtils;
+import org.apache.gobblin.util.FileUtils;
+import org.apache.gobblin.util.HadoopUtils;
+import org.apache.gobblin.util.JvmUtils;
+import org.apache.gobblin.util.TaskEventMetadataUtils;
+import org.apache.gobblin.util.event.ContainerHealthCheckFailureEvent;
+import org.apache.gobblin.util.event.MetadataBasedEvent;
+import org.apache.gobblin.util.event.WorkUnitLaggingEvent;
+import org.apache.gobblin.util.eventbus.EventBusFactory;
+import org.apache.gobblin.util.reflection.GobblinConstructorUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -62,54 +108,6 @@ import org.apache.helix.task.TaskFactory;
 import org.apache.helix.task.TaskStateModelFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.github.rholder.retry.RetryException;
-import com.github.rholder.retry.Retryer;
-import com.github.rholder.retry.RetryerBuilder;
-import com.github.rholder.retry.StopStrategies;
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Throwables;
-import com.google.common.collect.Lists;
-import com.google.common.eventbus.EventBus;
-import com.google.common.eventbus.Subscribe;
-import com.google.common.util.concurrent.MoreExecutors;
-import com.google.common.util.concurrent.Service;
-import com.google.common.util.concurrent.ServiceManager;
-import com.typesafe.config.Config;
-import com.typesafe.config.ConfigFactory;
-import com.typesafe.config.ConfigValueFactory;
-
-import lombok.Getter;
-import lombok.Setter;
-
-import org.apache.gobblin.annotation.Alpha;
-import org.apache.gobblin.broker.SharedResourcesBrokerFactory;
-import org.apache.gobblin.configuration.ConfigurationKeys;
-import org.apache.gobblin.configuration.State;
-import org.apache.gobblin.instrumented.StandardMetricsBridge;
-import org.apache.gobblin.metrics.GobblinMetrics;
-import org.apache.gobblin.metrics.MultiReporterException;
-import org.apache.gobblin.metrics.RootMetricContext;
-import org.apache.gobblin.metrics.event.EventSubmitter;
-import org.apache.gobblin.metrics.event.GobblinEventBuilder;
-import org.apache.gobblin.metrics.reporter.util.MetricReportUtils;
-import org.apache.gobblin.runtime.api.TaskEventMetadataGenerator;
-import org.apache.gobblin.runtime.messaging.DynamicWorkUnitProducer;
-import org.apache.gobblin.runtime.messaging.data.SplitWorkUnitMessage;
-import org.apache.gobblin.runtime.messaging.hdfs.FileSystemMessageBuffer;
-import org.apache.gobblin.util.ClassAliasResolver;
-import org.apache.gobblin.util.ConfigUtils;
-import org.apache.gobblin.util.FileUtils;
-import org.apache.gobblin.util.HadoopUtils;
-import org.apache.gobblin.util.JvmUtils;
-import org.apache.gobblin.util.TaskEventMetadataUtils;
-import org.apache.gobblin.util.event.ContainerHealthCheckFailureEvent;
-import org.apache.gobblin.util.event.MetadataBasedEvent;
-import org.apache.gobblin.util.event.WorkUnitLaggingEvent;
-import org.apache.gobblin.util.eventbus.EventBusFactory;
-import org.apache.gobblin.util.reflection.GobblinConstructorUtils;
 
 /**
  * The main class running in the containers managing services for running Gobblin
@@ -766,17 +764,17 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
   @Subscribe
   public void handleWorkUnitLaggingEvent(WorkUnitLaggingEvent event) throws IOException {
     logger.error("Received {} from: {}", event.getClass().getSimpleName(), event.getClassName());
-    logger.error("Submitting a {}.", WorkUnitLaggingEvent.class.getSimpleName());
+    logger.error("Submitting a {}. event={}", WorkUnitLaggingEvent.class.getSimpleName(), event);
     submitEvent(event);
 
     logger.error("Sending a request to the AM to split the workunit running on this TR into multiple units.");
-    FileSystemMessageBuffer buffer = new FileSystemMessageBuffer();
-    DynamicWorkUnitProducer producer = new DynamicWorkUnitProducer(buffer);
     SplitWorkUnitMessage message = SplitWorkUnitMessage.builder()
         .workUnitId(this.workUnitId)
         .laggingTopicPartitions(event.getLaggingTopicPartitions())
         .build();
-    buffer.add(message);
+
+    DynamicWorkUnitProducer producer = getProducer();
+    producer.produce(message);
   }
 
   @Subscribe
@@ -787,6 +785,18 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
     logger.error("Stopping GobblinTaskRunner...");
     GobblinTaskRunner.this.setHealthCheckFailed(true);
     GobblinTaskRunner.this.stop();
+  }
+
+  private DynamicWorkUnitProducer getProducer() {
+    MessageBuffer<DynamicWorkUnitMessage> buffer = this.getMessageBuffer(this.clusterConfig);
+    return new DynamicWorkUnitProducer(buffer);
+  }
+
+  private MessageBuffer<DynamicWorkUnitMessage> getMessageBuffer(Config cfg) {
+    // TODO: mho replace the hard coded factory with something from the cfg
+    MessageBuffer.Factory<DynamicWorkUnitMessage> factory = GobblinConstructorUtils.invokeConstructor(
+        MessageBuffer.Factory.class, FileSystemMessageBuffer.Factory.class.getName(), cfg);
+    return factory.getBuffer(GobblinClusterManager.class.getSimpleName());
   }
 
   private void submitEvent(MetadataBasedEvent event) {

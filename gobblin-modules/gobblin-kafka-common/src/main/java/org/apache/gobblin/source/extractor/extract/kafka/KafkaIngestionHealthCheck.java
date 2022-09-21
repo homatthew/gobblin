@@ -41,7 +41,7 @@ public class KafkaIngestionHealthCheck implements CommitStep {
   public KafkaIngestionHealthCheck(Config config, KafkaExtractorStatsTracker statsTracker) {
     this.config = config;
     this.healthModel = new KafkaHealthModel(config, statsTracker);
-    this.dynamicWorkUnitEnabled = ConfigUtils.getBoolean(config, "isDynamicWorkUnitEnabled", false);
+    this.dynamicWorkUnitEnabled = ConfigUtils.getBoolean(config, "isDynamicWorkUnitEnabled", true);
     this.eventBus = dynamicWorkUnitEnabled ?
         getEventBus(WorkUnitLaggingEvent.WORK_UNIT_LAGGING_EVENT_BUS_NAME) :
         getEventBus(ContainerHealthCheckFailureEvent.CONTAINER_HEALTH_CHECK_EVENT_BUS_NAME);
