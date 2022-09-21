@@ -71,21 +71,19 @@ public class KafkaIngestionHealthCheck implements CommitStep {
   @Override
   public void execute() {
     healthModel.update();
+    log.info("mho-hdw: forcing the \"abort\" to force this task runner to write to disk >:)");
     if (!healthModel.hasEnoughData()) {
       log.info("SUCCESS: Num observations: {} smaller than {}", healthModel.getNumberOfObservations(), healthModel.getSlidingWindowSize());
-      return;
     }
 
     if (healthModel.isIngestionLatencyHealthy()) {
       log.info("SUCCESS: Ingestion Latencies = {}, Ingestion Latency Threshold: {}", healthModel.getIngestionLatencies().toString(), healthModel
           .getIngestionLatencyThresholdMinutes());
-      return;
     }
 
     if (healthModel.isConsumptionRateHealthy()) {
       log.info("SUCCESS: Avg. Consumption Rate = {} MBps, Target Consumption rate = {} MBps", healthModel.getMaxConsumptionRate(), healthModel
           .getExpectedConsumptionRate());
-      return;
     }
 
     log.error("FAILED: {}", healthModel.getHealthCheckReport());
