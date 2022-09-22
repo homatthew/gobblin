@@ -86,6 +86,7 @@ public class KafkaIngestionHealthCheck implements CommitStep {
           .getExpectedConsumptionRate());
     }
 
+    log.info("mho-ufk: kafka ingestion health check cfg={}", this.config);
     log.error("FAILED: {}", healthModel.getHealthCheckReport());
     onFailure();
   }

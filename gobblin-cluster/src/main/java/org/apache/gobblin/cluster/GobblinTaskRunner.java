@@ -198,7 +198,8 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
 
     this.isTaskDriver = ConfigUtils.getBoolean(config, GobblinClusterConfigurationKeys.TASK_DRIVER_ENABLED,false);
     this.helixInstanceName = helixInstanceName;
-    this.workUnitId = config.getString(ConfigurationKeys.TASK_ID_KEY);
+    this.workUnitId = "HELLO WORLD";// config.getString(ConfigurationKeys.TASK_ID_KEY);
+    logger.info("mho-ufk: cfg={}", config);
     this.taskRunnerId = taskRunnerId;
     this.applicationName = applicationName;
     this.applicationId = applicationId;
