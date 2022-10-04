@@ -121,6 +121,7 @@ public class SingleTask {
 
     Config jobConfig = getConfigFromJobState(_jobState);
 
+    _logger.info("mho-ufk: singletask jobConfig={}", jobConfig);
     _logger.debug("SingleTask.run: jobId {} workUnitFilePath {} jobStateFilePath {} jobState {} jobConfig {}",
         _jobId, _workUnitFilePath, _jobStateFilePath, _jobState, jobConfig);
 

@@ -30,9 +30,11 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import lombok.Getter;
+import lombok.ToString;
 import org.apache.commons.lang3.StringUtils;
 
 
+@ToString
 public class WorkUnitLaggingEvent implements MetadataBasedEvent {
   public static final String WORK_UNIT_LAGGING_EVENT_BUS_NAME = "WorkUnitLaggingEventBus";
   public static final String WORK_UNIT_LAGGING_TOPIC_PARTITION_KEY = "LaggingTopicPartitions";

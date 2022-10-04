@@ -133,8 +133,7 @@ public class KafkaIngestionHealthCheck implements CommitStep {
   private EventBus getEventBus(String name) {
     EventBus eventBus;
     try {
-      eventBus = EventBusFactory.get(ContainerHealthCheckFailureEvent.CONTAINER_HEALTH_CHECK_EVENT_BUS_NAME,
-          SharedResourcesBrokerFactory.getImplicitBroker());
+      eventBus = EventBusFactory.get(name, SharedResourcesBrokerFactory.getImplicitBroker());
     } catch (IOException e) {
       log.error("Could not find EventBus instance for container health check", e);
       eventBus = null;

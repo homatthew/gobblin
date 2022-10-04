@@ -367,7 +367,7 @@ public abstract class AbstractJobLauncher implements JobLauncher {
 
     synchronized (this.cancellationExecution) {
       try {
-        while (!this.cancellationExecuted) {
+        while (!this.cancellationExecuted) { // this could be the reason stopped doesn't work
           // Wait for the cancellation to be executed
           this.cancellationExecution.wait();
         }

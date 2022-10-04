@@ -17,6 +17,16 @@
 
 package org.apache.gobblin.source.extractor.extract.kafka;
 
+import com.codahale.metrics.Gauge;
+import com.codahale.metrics.Metric;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
+import com.google.common.eventbus.EventBus;
+import com.google.common.eventbus.Subscribe;
+import com.google.common.util.concurrent.AtomicDouble;
+import com.google.gson.JsonElement;
 import java.io.IOException;
 import java.util.AbstractMap;
 import java.util.ArrayList;
@@ -32,23 +42,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
-import org.apache.avro.Schema;
-
-import com.codahale.metrics.Gauge;
-import com.codahale.metrics.Metric;
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
-import com.google.common.util.concurrent.AtomicDouble;
-import com.google.gson.JsonElement;
-
 import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
-
+import org.apache.avro.Schema;
+import org.apache.gobblin.broker.SharedResourcesBrokerFactory;
 import org.apache.gobblin.commit.CommitStep;
 import org.apache.gobblin.configuration.ConfigurationKeys;
 import org.apache.gobblin.configuration.State;
@@ -72,12 +71,14 @@ import org.apache.gobblin.stream.RecordEnvelope;
 import org.apache.gobblin.util.ClassAliasResolver;
 import org.apache.gobblin.util.ClustersNames;
 import org.apache.gobblin.util.ConfigUtils;
+import org.apache.gobblin.util.event.AddWorkUnitIdEvent;
+import org.apache.gobblin.util.event.MetadataBasedEvent;
+import org.apache.gobblin.util.eventbus.EventBusFactory;
 import org.apache.gobblin.util.reflection.GobblinConstructorUtils;
 
-import static org.apache.gobblin.source.extractor.extract.kafka.KafkaProduceRateTracker.KAFKA_PARTITION_PRODUCE_RATE_KEY;
-import static org.apache.gobblin.source.extractor.extract.kafka.KafkaSource.DEFAULT_GOBBLIN_KAFKA_CONSUMER_CLIENT_FACTORY_CLASS;
-import static org.apache.gobblin.source.extractor.extract.kafka.KafkaSource.GOBBLIN_KAFKA_CONSUMER_CLIENT_FACTORY_CLASS;
-import static org.apache.gobblin.source.extractor.extract.kafka.workunit.packer.KafkaTopicGroupingWorkUnitPacker.NUM_PARTITIONS_ASSIGNED;
+import static org.apache.gobblin.source.extractor.extract.kafka.KafkaProduceRateTracker.*;
+import static org.apache.gobblin.source.extractor.extract.kafka.KafkaSource.*;
+import static org.apache.gobblin.source.extractor.extract.kafka.workunit.packer.KafkaTopicGroupingWorkUnitPacker.*;
 
 /**
  * An implementation of {@link org.apache.gobblin.source.extractor.Extractor}  which reads from Kafka and returns records .
@@ -101,6 +102,8 @@ public class KafkaStreamingExtractor<S> extends FlushingExtractor<S, DecodeableK
   private final KafkaProduceRateTracker produceRateTracker;
   private final List<KafkaPartition> partitions;
   private final long extractorStatsReportingTimeIntervalMillis;
+  private final String taskId;
+  private final EventBus eventbus;
   //Mapping from Kafka Partition Id to partition index
   @Getter
   private final Map<Integer, Integer> partitionIdToIndexMap;
@@ -269,6 +272,8 @@ public class KafkaStreamingExtractor<S> extends FlushingExtractor<S, DecodeableK
         this.workUnitState.getProp(KafkaSource.RECORD_CREATION_TIMESTAMP_FIELD, null);
     this.recordCreationTimestampUnit = TimeUnit.valueOf(
         this.workUnitState.getProp(KafkaSource.RECORD_CREATION_TIMESTAMP_UNIT, TimeUnit.MILLISECONDS.name()));
+    this.taskId = this.workUnitState.getWorkunit().getId();
+    this.eventbus = getEventBus(this.getClass().getName());
   }
 
   private Map<KafkaPartition, LongWatermark> getTopicPartitionWatermarks(List<KafkaPartition> topicPartitions) {
@@ -579,5 +584,22 @@ public class KafkaStreamingExtractor<S> extends FlushingExtractor<S, DecodeableK
   @Override
   public String toString() {
     return topicPartitions.toString();
+  }
+
+  @Subscribe
+  private void addWorkUnitId(AddWorkUnitIdEvent event) {
+    MetadataBasedEvent wrappedEvent = event.getEvent();
+    wrappedEvent.addMetadata("task.id", );
+  }
+
+  private EventBus getEventBus(String name) {
+    EventBus eventBus;
+    try {
+      eventBus = EventBusFactory.get(name, SharedResourcesBrokerFactory.getImplicitBroker());
+    } catch (IOException e) {
+      log.error("Could not find EventBus instance for container health check", e);
+      eventBus = null;
+    }
+    return eventBus;
   }
 }
