@@ -17,6 +17,22 @@
 
 package org.apache.gobblin.yarn;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.base.Throwables;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.eventbus.EventBus;
+import com.google.common.eventbus.Subscribe;
+import com.google.common.io.Closer;
+import com.google.common.util.concurrent.AbstractIdleService;
+import com.typesafe.config.Config;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -33,8 +49,28 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
+import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
+import lombok.Getter;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.gobblin.cluster.GobblinClusterConfigurationKeys;
+import org.apache.gobblin.cluster.GobblinClusterMetricTagNames;
+import org.apache.gobblin.cluster.GobblinClusterUtils;
+import org.apache.gobblin.cluster.HelixUtils;
+import org.apache.gobblin.cluster.event.ClusterManagerShutdownRequest;
+import org.apache.gobblin.configuration.ConfigurationKeys;
+import org.apache.gobblin.metrics.GobblinMetrics;
+import org.apache.gobblin.metrics.MetricReporterException;
+import org.apache.gobblin.metrics.MultiReporterException;
+import org.apache.gobblin.metrics.Tag;
+import org.apache.gobblin.metrics.event.EventSubmitter;
+import org.apache.gobblin.util.ConfigUtils;
+import org.apache.gobblin.util.ExecutorsUtils;
+import org.apache.gobblin.util.JvmUtils;
+import org.apache.gobblin.util.executors.ScalingThreadPoolExecutor;
+import org.apache.gobblin.yarn.event.ContainerReleaseRequest;
+import org.apache.gobblin.yarn.event.ContainerShutdownRequest;
+import org.apache.gobblin.yarn.event.NewContainerRequest;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
@@ -70,46 +106,7 @@ import org.apache.helix.HelixManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.base.Throwables;
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.eventbus.EventBus;
-import com.google.common.eventbus.Subscribe;
-import com.google.common.io.Closer;
-import com.google.common.util.concurrent.AbstractIdleService;
-import com.typesafe.config.Config;
-
-import lombok.AccessLevel;
-import lombok.Getter;
-
-import org.apache.gobblin.cluster.GobblinClusterConfigurationKeys;
-import org.apache.gobblin.cluster.GobblinClusterMetricTagNames;
-import org.apache.gobblin.cluster.GobblinClusterUtils;
-import org.apache.gobblin.cluster.HelixUtils;
-import org.apache.gobblin.cluster.event.ClusterManagerShutdownRequest;
-import org.apache.gobblin.configuration.ConfigurationKeys;
-import org.apache.gobblin.metrics.GobblinMetrics;
-import org.apache.gobblin.metrics.MetricReporterException;
-import org.apache.gobblin.metrics.MultiReporterException;
-import org.apache.gobblin.metrics.Tag;
-import org.apache.gobblin.metrics.event.EventSubmitter;
-import org.apache.gobblin.util.ConfigUtils;
-import org.apache.gobblin.util.ExecutorsUtils;
-import org.apache.gobblin.util.JvmUtils;
-import org.apache.gobblin.util.executors.ScalingThreadPoolExecutor;
-import org.apache.gobblin.yarn.event.ContainerReleaseRequest;
-import org.apache.gobblin.yarn.event.ContainerShutdownRequest;
-import org.apache.gobblin.yarn.event.NewContainerRequest;
-
-import static org.apache.gobblin.yarn.GobblinYarnTaskRunner.HELIX_YARN_INSTANCE_NAME_PREFIX;
+import static org.apache.gobblin.yarn.GobblinYarnTaskRunner.*;
 
 
 /**
@@ -159,6 +156,8 @@ public class YarnService extends AbstractIdleService {
   private final String containerTimezone;
   private final HelixManager helixManager;
   private final HelixAdmin helixAdmin;
+  private int numTimesNewContainerIsRequested = 0;
+  private AtomicInteger mhoTotalRequestsSent = new AtomicInteger(0);
 
   @Getter(AccessLevel.PROTECTED)
   private volatile Optional<Resource> maxResourceCapacity = Optional.absent();
@@ -461,7 +460,7 @@ public class YarnService extends AbstractIdleService {
    * @param inUseInstances  a set of in use instances
    */
   public synchronized void requestTargetNumberOfContainers(YarnContainerRequestBundle yarnContainerRequestBundle, Set<String> inUseInstances) {
-    LOGGER.debug("Requesting numTargetContainers {}, in use instances count is {}, container map size is {}",
+    LOGGER.info("Requesting numTargetContainers {}, in use instances count is {}, container map size is {}",
         yarnContainerRequestBundle.getTotalContainers(), inUseInstances, this.containerMap.size());
     int numTargetContainers = yarnContainerRequestBundle.getTotalContainers();
     // YARN can allocate more than the requested number of containers, compute additional allocations and deallocations
@@ -475,11 +474,15 @@ public class YarnService extends AbstractIdleService {
       String currentHelixTag = entry.getKey();
       int desiredContainerCount = entry.getValue();
       // Calculate requested container count based on adding allocated count and outstanding ContainerRequests in Yarn
-      int requestedContainerCount = allocatedContainerCountMap.getOrDefault(currentHelixTag, 0)
-          + getMatchingRequestsCount(yarnContainerRequestBundle.getHelixTagResourceMap().get(currentHelixTag));
+      int allocatedContainers = allocatedContainerCountMap.getOrDefault(currentHelixTag, 0);
+      int outstandingRequests = getMatchingRequestsCount(yarnContainerRequestBundle.getHelixTagResourceMap().get(currentHelixTag));
+      int requestedContainerCount = allocatedContainers + outstandingRequests;
+      int prevRequestedContainerCount = requestedContainerCount;
       for(; requestedContainerCount < desiredContainerCount; requestedContainerCount++) {
         requestContainer(Optional.absent(), yarnContainerRequestBundle.getHelixTagResourceMap().get(currentHelixTag));
       }
+      LOGGER.info("mho-ufk: prevRequestedContainerCount={}, requestedContainerCount={}, totalRequested={}, totalNumContainersRequested={}, outstandingRequests={}, allocatedContainers={}, helixTag={}, mhoTotalRequestsSent={}",
+          prevRequestedContainerCount, requestedContainerCount, requestedContainerCount - prevRequestedContainerCount, numTimesNewContainerIsRequested, outstandingRequests, allocatedContainers, currentHelixTag, mhoTotalRequestsSent.get());
     }
 
     // If the total desired is lower than the currently allocated amount then release free containers.
@@ -487,7 +490,7 @@ public class YarnService extends AbstractIdleService {
     // and assigned work. Resizing based on numRequestedContainers at this point may release a container right before
     // or soon after it is assigned work.
     if (numTargetContainers < numAllocatedContainers) {
-      LOGGER.debug("Shrinking number of containers by {}", (numAllocatedContainers - numTargetContainers));
+      LOGGER.info("Shrinking number of containers by {}", (numAllocatedContainers - numTargetContainers));
 
       List<Container> containersToRelease = new ArrayList<>();
       int numToShutdown = numAllocatedContainers - numTargetContainers;
@@ -504,7 +507,7 @@ public class YarnService extends AbstractIdleService {
         }
       }
 
-      LOGGER.debug("Shutting down containers {}", containersToRelease);
+      LOGGER.info("Shutting down containers {}", containersToRelease);
 
       this.eventBus.post(new ContainerReleaseRequest(containersToRelease));
     }
@@ -544,6 +547,8 @@ public class YarnService extends AbstractIdleService {
     priority.setPriority(priorityNum);
 
     String[] preferredNodes = preferredNode.isPresent() ? new String[] {preferredNode.get()} : null;
+    this.numTimesNewContainerIsRequested++;
+    mhoTotalRequestsSent.incrementAndGet();
     this.amrmClientAsync.addContainerRequest(
         new AMRMClient.ContainerRequest(resource, preferredNodes, null, priority));
   }
@@ -793,7 +798,12 @@ public class YarnService extends AbstractIdleService {
   private int getMatchingRequestsCount(Resource resource) {
     int priorityNum = resourcePriorityMap.getOrDefault(resource.toString(), 0);
     Priority priority = Priority.newInstance(priorityNum);
-    return getAmrmClientAsync().getMatchingRequests(priority, ResourceRequest.ANY, resource).size();
+    LOGGER.info("mho-ufk: priorityNum={} resourceInPriorityMap={}, resourceCapability={}", priorityNum, resourcePriorityMap.containsKey(resource.toString()), resource);
+    List<? extends Collection> requests = getAmrmClientAsync().getMatchingRequests(priority, ResourceRequest.ANY, resource); // expect to be 1
+    if (CollectionUtils.isEmpty(requests)) {
+      return 0;
+    }
+    return requests.get(0).size();
   }
 
   /**
@@ -823,6 +833,7 @@ public class YarnService extends AbstractIdleService {
               GobblinYarnMetricTagNames.CONTAINER_ID, containerId);
         }
 
+        mhoTotalRequestsSent.decrementAndGet();
         LOGGER.info("Container {} has been allocated with resource {} for helix tag {}",
             container.getId(), container.getResource(), containerHelixTag);
 

@@ -109,7 +109,7 @@ public class YarnAutoScalingManager extends AbstractIdleService {
         DEFAULT_AUTO_SCALING_CONTAINER_OVERPROVISION_FACTOR);
 
     this.slidingFixedSizeWindow = config.hasPath(AUTO_SCALING_WINDOW_SIZE)
-        ? new SlidingWindowReservoir(config.getInt(AUTO_SCALING_WINDOW_SIZE), Integer.MAX_VALUE)
+        ? new SlidingWindowReservoir(config.getInt(AUTO_SCALING_WINDOW_SIZE), Integer.MAX_VALUE) // this upper bound may need to be 10k or so...
         : new SlidingWindowReservoir(Integer.MAX_VALUE);
 
     this.autoScalingExecutor = Executors.newSingleThreadScheduledExecutor(
@@ -266,7 +266,7 @@ public class YarnAutoScalingManager extends AbstractIdleService {
       }
       slidingWindowReservoir.add(yarnContainerRequestBundle);
 
-      log.debug("There are {} containers being requested in total, tag-count map {}, tag-resource map {}",
+      log.info("There are {} containers being requested in total, tag-count map {}, tag-resource map {}",
           yarnContainerRequestBundle.getTotalContainers(), yarnContainerRequestBundle.getHelixTagContainerCountMap(),
           yarnContainerRequestBundle.getHelixTagResourceMap());
 
