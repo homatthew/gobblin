@@ -73,6 +73,7 @@ import org.apache.gobblin.metrics.event.EventSubmitter;
 import org.apache.gobblin.metrics.event.GobblinEventBuilder;
 import org.apache.gobblin.metrics.reporter.util.MetricReportUtils;
 import org.apache.gobblin.runtime.api.TaskEventMetadataGenerator;
+import org.apache.gobblin.runtime.messaging.DynamicWorkUnitConfigKeys;
 import org.apache.gobblin.runtime.messaging.DynamicWorkUnitProducer;
 import org.apache.gobblin.runtime.messaging.MessageBuffer;
 import org.apache.gobblin.runtime.messaging.data.DynamicWorkUnitMessage;
@@ -800,8 +801,10 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
 
   private MessageBuffer<DynamicWorkUnitMessage> getMessageBuffer(Config cfg) {
     // TODO: mho replace the hard coded factory with something from the cfg
+    Config dynamicWorkUnitCfg = cfg.withValue(DynamicWorkUnitConfigKeys.DYNAMIC_WORKUNIT_HDFS_PATH,
+        ConfigValueFactory.fromAnyRef(new Path(this.appWorkPath, "_messages").toString()));
     MessageBuffer.Factory<DynamicWorkUnitMessage> factory = GobblinConstructorUtils.invokeConstructor(
-        MessageBuffer.Factory.class, FileSystemMessageBuffer.Factory.class.getName(), cfg);
+        MessageBuffer.Factory.class, FileSystemMessageBuffer.Factory.class.getName(), dynamicWorkUnitCfg);
     return factory.getBuffer(GobblinClusterManager.class.getSimpleName());
   }
 

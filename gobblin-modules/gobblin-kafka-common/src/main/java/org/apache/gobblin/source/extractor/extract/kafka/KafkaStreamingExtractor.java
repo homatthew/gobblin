@@ -273,7 +273,8 @@ public class KafkaStreamingExtractor<S> extends FlushingExtractor<S, DecodeableK
     this.recordCreationTimestampUnit = TimeUnit.valueOf(
         this.workUnitState.getProp(KafkaSource.RECORD_CREATION_TIMESTAMP_UNIT, TimeUnit.MILLISECONDS.name()));
     this.taskId = this.workUnitState.getWorkunit().getId();
-    this.eventbus = getEventBus(this.getClass().getName());
+    log.info("Getting event bus for {} {}", this.getClass().getSimpleName(), KafkaStreamingExtractor.class.getSimpleName());
+    this.eventbus = getEventBus(KafkaStreamingExtractor.class.getSimpleName());
     this.eventbus.register(this);
   }
 
@@ -588,9 +589,11 @@ public class KafkaStreamingExtractor<S> extends FlushingExtractor<S, DecodeableK
   }
 
   @Subscribe
-  private void addWorkUnitId(AddWorkUnitIdEvent event) {
+  public void addWorkUnitId(AddWorkUnitIdEvent event) {
+    log.info("Received event to add workunit to. event={}", event);
     MetadataBasedEvent eventToAddWorkUnitId = event.getEvent();
     eventToAddWorkUnitId.addMetadata("task.id", taskId);
+    log.info("Posting the modified event. event={}", event);
     event.getEventBus().post(eventToAddWorkUnitId);
   }
 
@@ -599,7 +602,7 @@ public class KafkaStreamingExtractor<S> extends FlushingExtractor<S, DecodeableK
     try {
       eventBus = EventBusFactory.get(name, SharedResourcesBrokerFactory.getImplicitBroker());
     } catch (IOException e) {
-      log.error("Could not find EventBus instance for container health check", e);
+      log.error("Could not find EventBus instance for kafkastreamingextractor", e);
       eventBus = null;
     }
     return eventBus;
