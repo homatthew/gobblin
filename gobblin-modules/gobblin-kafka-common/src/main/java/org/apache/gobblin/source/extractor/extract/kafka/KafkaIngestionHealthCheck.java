@@ -24,6 +24,7 @@ import org.apache.gobblin.annotation.Alias;
 import org.apache.gobblin.broker.SharedResourcesBrokerFactory;
 import org.apache.gobblin.commit.CommitStep;
 import org.apache.gobblin.util.ConfigUtils;
+import org.apache.gobblin.util.event.AddWorkUnitIdEvent;
 import org.apache.gobblin.util.event.ContainerHealthCheckFailureEvent;
 import org.apache.gobblin.util.event.MetadataBasedEvent;
 import org.apache.gobblin.util.event.WorkUnitLaggingEvent;
@@ -106,7 +107,8 @@ public class KafkaIngestionHealthCheck implements CommitStep {
       event.addMetadata(WorkUnitLaggingEvent.WORK_UNIT_LAGGING_TOPIC_PARTITION_KEY,
           healthModel.getLaggingTopicPartitions().toString());
       addIngestionMetrics(event);
-      this.eventBus.post(event);
+      getEventBus(KafkaStreamingExtractor.class.getSimpleName())
+          .post(new AddWorkUnitIdEvent(event, this.eventBus));
     }
   }
 
@@ -130,14 +132,15 @@ public class KafkaIngestionHealthCheck implements CommitStep {
     event.addMetadata("targetConsumptionRate", Double.toString(healthModel.getExpectedConsumptionRate()));
   }
 
-  private EventBus getEventBus(String name) {
+  public static EventBus getEventBus(String name) {
     EventBus eventBus;
     try {
       eventBus = EventBusFactory.get(name, SharedResourcesBrokerFactory.getImplicitBroker());
     } catch (IOException e) {
-      log.error("Could not find EventBus instance for container health check", e);
+      log.error("Could not find EventBus instance for " + name, e);
       eventBus = null;
     }
+
     return eventBus;
   }
 }

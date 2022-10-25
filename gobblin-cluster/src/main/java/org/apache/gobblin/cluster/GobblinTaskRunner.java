@@ -106,6 +106,7 @@ import org.apache.helix.messaging.handling.MultiTypeMessageHandlerFactory;
 import org.apache.helix.model.Message;
 import org.apache.helix.task.TaskFactory;
 import org.apache.helix.task.TaskStateModelFactory;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -152,6 +153,7 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
   // use the EventBus stream to communicate back application level health check results to the
   // GobblinTaskRunner.
   private final EventBus containerHealthEventBus;
+  private final EventBus workUnitLaggingEventBus;
 
   @Getter
   private HelixManager jobHelixManager;
@@ -178,7 +180,6 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
   protected final FileSystem fs;
   protected final String applicationName;
   protected final String applicationId;
-  protected final String workUnitId;
   private final boolean isMetricReportingFailureFatal;
   private final boolean isEventReportingFailureFatal;
 
@@ -198,7 +199,6 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
 
     this.isTaskDriver = ConfigUtils.getBoolean(config, GobblinClusterConfigurationKeys.TASK_DRIVER_ENABLED,false);
     this.helixInstanceName = helixInstanceName;
-    this.workUnitId = "HELLO WORLD";// config.getString(ConfigurationKeys.TASK_ID_KEY);
     logger.info("mho-ufk: cfg={}", config);
     this.taskRunnerId = taskRunnerId;
     this.applicationName = applicationName;
@@ -224,19 +224,10 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
     this.isContainerExitOnHealthCheckFailureEnabled = ConfigUtils.getBoolean(config, GobblinClusterConfigurationKeys.CONTAINER_EXIT_ON_HEALTH_CHECK_FAILURE_ENABLED,
         GobblinClusterConfigurationKeys.DEFAULT_CONTAINER_EXIT_ON_HEALTH_CHECK_FAILURE_ENABLED);
 
-    if (this.isContainerExitOnHealthCheckFailureEnabled) {
-      EventBus eventBus;
-      try {
-        eventBus = EventBusFactory.get(ContainerHealthCheckFailureEvent.CONTAINER_HEALTH_CHECK_EVENT_BUS_NAME,
-            SharedResourcesBrokerFactory.getImplicitBroker());
-      } catch (IOException e) {
-        logger.error("Could not find EventBus instance for container health check", e);
-        eventBus = null;
-      }
-      this.containerHealthEventBus = eventBus;
-    } else {
-      this.containerHealthEventBus = null;
-    }
+    this.containerHealthEventBus = this.isContainerExitOnHealthCheckFailureEnabled
+      ? getEventBus(ContainerHealthCheckFailureEvent.CONTAINER_HEALTH_CHECK_EVENT_BUS_NAME)
+      : null;
+    this.workUnitLaggingEventBus = getEventBus(WorkUnitLaggingEvent.WORK_UNIT_LAGGING_EVENT_BUS_NAME);
 
     initHelixManager();
 
@@ -250,6 +241,19 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
         taskRunnerId,
         config,
         appWorkDirOptional);
+  }
+
+  @Nullable
+  private EventBus getEventBus(String name) {
+    EventBus eventBus;
+    try {
+      eventBus = EventBusFactory.get(name,
+          SharedResourcesBrokerFactory.getImplicitBroker());
+    } catch (IOException e) {
+      logger.error("Could not find EventBus instance for container health check", e);
+      eventBus = null;
+    }
+    return eventBus;
   }
 
   private TaskRunnerSuiteBase initTaskRunnerSuiteBase() throws ReflectiveOperationException {
@@ -376,6 +380,7 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
       logger.info("Registering GobblinTaskRunner with ContainerHealthCheckEventBus..");
       this.containerHealthEventBus.register(this);
     }
+    this.workUnitLaggingEventBus.register(this);
 
     if (this.serviceManager != null) {
       this.serviceManager.startAsync();
@@ -766,11 +771,11 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
   public void handleWorkUnitLaggingEvent(WorkUnitLaggingEvent event) throws IOException {
     logger.error("Received {} from: {}", event.getClass().getSimpleName(), event.getClassName());
     logger.error("Submitting a {}. event={}", WorkUnitLaggingEvent.class.getSimpleName(), event);
-    submitEvent(event);
+    submitGobblinTrackingEvent(event);
 
     logger.error("Sending a request to the AM to split the workunit running on this TR into multiple units.");
     SplitWorkUnitMessage message = SplitWorkUnitMessage.builder()
-        .workUnitId(this.workUnitId)
+        .workUnitId(event.getMetadata().get("task.id"))
         .laggingTopicPartitions(event.getLaggingTopicPartitions())
         .build();
 
@@ -782,7 +787,7 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
   public void handleContainerHealthCheckFailureEvent(ContainerHealthCheckFailureEvent event) throws IOException {
     logger.error("Received {} from: {}", event.getClass().getSimpleName(), event.getClassName());
     logger.error("Submitting a ContainerHealthCheckFailureEvent..");
-    submitEvent(event);
+    submitGobblinTrackingEvent(event);
     logger.error("Stopping GobblinTaskRunner...");
     GobblinTaskRunner.this.setHealthCheckFailed(true);
     GobblinTaskRunner.this.stop();
@@ -800,7 +805,7 @@ public class GobblinTaskRunner implements StandardMetricsBridge {
     return factory.getBuffer(GobblinClusterManager.class.getSimpleName());
   }
 
-  private void submitEvent(MetadataBasedEvent event) {
+  private void submitGobblinTrackingEvent(MetadataBasedEvent event) {
     EventSubmitter eventSubmitter = new EventSubmitter.Builder(RootMetricContext.get(), getClass().getPackage().getName()).build();
     GobblinEventBuilder eventBuilder = new GobblinEventBuilder(event.getName());
     State taskState = ConfigUtils.configToState(event.getConfig());

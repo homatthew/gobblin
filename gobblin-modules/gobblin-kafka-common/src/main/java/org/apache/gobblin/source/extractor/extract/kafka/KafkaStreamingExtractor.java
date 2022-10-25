@@ -274,6 +274,7 @@ public class KafkaStreamingExtractor<S> extends FlushingExtractor<S, DecodeableK
         this.workUnitState.getProp(KafkaSource.RECORD_CREATION_TIMESTAMP_UNIT, TimeUnit.MILLISECONDS.name()));
     this.taskId = this.workUnitState.getWorkunit().getId();
     this.eventbus = getEventBus(this.getClass().getName());
+    this.eventbus.register(this);
   }
 
   private Map<KafkaPartition, LongWatermark> getTopicPartitionWatermarks(List<KafkaPartition> topicPartitions) {
@@ -588,8 +589,9 @@ public class KafkaStreamingExtractor<S> extends FlushingExtractor<S, DecodeableK
 
   @Subscribe
   private void addWorkUnitId(AddWorkUnitIdEvent event) {
-    MetadataBasedEvent wrappedEvent = event.getEvent();
-    wrappedEvent.addMetadata("task.id", );
+    MetadataBasedEvent eventToAddWorkUnitId = event.getEvent();
+    eventToAddWorkUnitId.addMetadata("task.id", taskId);
+    event.getEventBus().post(eventToAddWorkUnitId);
   }
 
   private EventBus getEventBus(String name) {
