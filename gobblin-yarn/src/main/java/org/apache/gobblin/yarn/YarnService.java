@@ -201,6 +201,7 @@ public class YarnService extends AbstractIdleService {
   private final boolean isPurgingOfflineHelixInstancesEnabled;
   private final long helixPurgeLaggingThresholdMs;
   private final long helixPurgeStatusPollingRateMs;
+  private volatile boolean helixPurgingCompleted = false;
 
   private volatile YarnContainerRequestBundle yarnContainerRequest;
   private final AtomicInteger priorityNumGenerator = new AtomicInteger(0);
@@ -359,13 +360,15 @@ public class YarnService extends AbstractIdleService {
 
     if (this.isPurgingOfflineHelixInstancesEnabled) {
       purgeHelixOfflineInstances(this.helixPurgeLaggingThresholdMs);
+      helixPurgingCompleted = true;
     }
 
     LOGGER.info("Requesting initial containers");
     requestInitialContainers(this.initialContainers);
   }
 
-  private void purgeHelixOfflineInstances(long laggingThresholdMs) {
+  // synchronized to block usage of RequestTargetNumberOfContainers
+  private synchronized void purgeHelixOfflineInstances(long laggingThresholdMs) {
     LOGGER.info("Purging offline helix instances before allocating containers for helixClusterName={}, connectionString={}, helixPurgeStatusPollingRateMs={}",
         helixManager.getClusterName(), helixManager.getMetadataStoreConnectionString(), this.helixPurgeStatusPollingRateMs);
     HelixInstancePurgerWithMetrics purger = new HelixInstancePurgerWithMetrics(this.eventSubmitter.orNull(),
@@ -460,16 +463,27 @@ public class YarnService extends AbstractIdleService {
    * number of containers. The intended usage is for the caller of this method to make periodic calls to attempt to
    * adjust the cluster towards the desired number of containers.
    *
+   * If this function is called when helix offline instance purging is enabled
+   * ({@value GobblinYarnConfigurationKeys#HELIX_PURGE_OFFLINE_INSTANCES_ENABLED}) and the purger has not finished purging,
+   * this function will be a no-op and log a warning
+   *
    * @param yarnContainerRequestBundle the desired containers information, including numbers, resource and helix tag
    * @param inUseInstances  a set of in use instances
    */
   public synchronized void requestTargetNumberOfContainers(YarnContainerRequestBundle yarnContainerRequestBundle, Set<String> inUseInstances) {
+    if (isPurgingOfflineHelixInstancesEnabled && !helixPurgingCompleted) {
+      LOGGER.warn("Unable to request numTargetContainers={} because the system is still waiting for Helix to purge offline instances"
+              + "isPurgingOfflineHelixInstancesEnabled={}, helixPurgingCompleted={}",
+          yarnContainerRequestBundle.getTotalContainers(), isPurgingOfflineHelixInstancesEnabled, helixPurgingCompleted);
+      return;
+    }
+
     LOGGER.info("Trying to set numTargetContainers={}, in-use helix instances count is {}, container map size is {}",
         yarnContainerRequestBundle.getTotalContainers(), inUseInstances.size(), this.containerMap.size());
     int numTargetContainers = yarnContainerRequestBundle.getTotalContainers();
     // YARN can allocate more than the requested number of containers, compute additional allocations and deallocations
     // based on the max of the requested and actual allocated counts
-    // Represents the number of containers allocated for across all helix tags
+    // Represents the number of containers allocated across all helix tags
     int totalAllocatedContainers = this.containerMap.size();
 
     // Request additional containers if the desired count is higher than the max of the current allocation or previously
