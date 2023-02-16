@@ -22,7 +22,6 @@ import gobblin.configuration.State;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Optional;
-import java.util.Properties;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.gobblin.data.management.retention.dataset.ConfigurableCleanableDataset;
 import org.apache.gobblin.dataset.Dataset;
@@ -39,11 +38,11 @@ import org.apache.hadoop.fs.Path;
  * Creates {@link ConfigurableCleanableDataset} from a glob for retention jobs.
  */
 @Slf4j
-public class DatasetHiveSchemaContainsComplexUnion<T extends Dataset> implements CheckedExceptionPredicate<T, IOException> {
+public class DatasetHiveSchemaContainsNonOptionalUnion<T extends Dataset> implements CheckedExceptionPredicate<T, IOException> {
   private HiveRegistrationPolicy registrationPolicy;
 
-  public DatasetHiveSchemaContainsComplexUnion(Properties properties) {
-    this.registrationPolicy = getRegistrationPolicy(new State(properties));
+  public DatasetHiveSchemaContainsNonOptionalUnion(State state) {
+    this.registrationPolicy = getRegistrationPolicy(state);
   }
 
   @Override
@@ -51,10 +50,10 @@ public class DatasetHiveSchemaContainsComplexUnion<T extends Dataset> implements
     Optional<HiveTable> hiveTable = getTable(dataset);
     if (!hiveTable.isPresent()) {
       log.error("No matching table for dataset={}", dataset);
+      return false;
     }
 
-    return hiveTable.map(this::containsComplexUnion)
-        .orElse(false);
+    return containsNonOptionalUnion(hiveTable.get());
   }
 
   protected Optional<HiveTable> getTable(T dataset) throws IOException {
@@ -64,7 +63,7 @@ public class DatasetHiveSchemaContainsComplexUnion<T extends Dataset> implements
   }
 
   @VisibleForTesting
-  protected boolean containsComplexUnion(HiveTable table) {
+  protected boolean containsNonOptionalUnion(HiveTable table) {
     return HiveMetaStoreUtils.containsNonOptionalUnionTypeColumn(table);
   }
 
