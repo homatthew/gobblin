@@ -138,7 +138,7 @@ public class HelixUtils {
       }
       workflowContext = TaskDriver.getWorkflowContext(helixManager, workFlowName);
       Thread.sleep(TimeUnit.SECONDS.toMillis(1L));
-      log.info("Waiting for work flow initialization.");
+      log.info("Waiting for work flow initialization. workflowName={}", workFlowName);
     }
 
     log.info("Work flow {} initialized", workFlowName);

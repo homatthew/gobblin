@@ -1109,5 +1109,11 @@ public class YarnService extends AbstractIdleService {
       this.helixTag = helixTag;
       this.startupCommand = YarnService.this.buildContainerCommand(container, helixParticipantId, helixTag);
     }
+
+    @Override
+    public String toString() {
+      return "ContainerInfo{" + "container=" + container.getId() + ", helixParticipantId='" + helixParticipantId + '\''
+          + ", helixTag='" + helixTag + '\'' + ", startupCommand='" + startupCommand + '\'' + '}';
+    }
   }
 }
