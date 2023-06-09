@@ -18,6 +18,8 @@
 package org.apache.gobblin.cluster;
 
 import java.io.IOException;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -110,6 +112,7 @@ public class GobblinHelixJobScheduler extends JobScheduler implements StandardMe
 
   private boolean startServicesCompleted;
   private final long helixJobStopTimeoutMillis;
+  private ConcurrentHashMap<String, Instant> jobStartTimes;
 
   public GobblinHelixJobScheduler(Config sysConfig,
                                   HelixManager jobHelixManager,
@@ -162,6 +165,7 @@ public class GobblinHelixJobScheduler extends JobScheduler implements StandardMe
     this.helixWorkflowListingTimeoutMillis = ConfigUtils.getLong(sysConfig, GobblinClusterConfigurationKeys.HELIX_WORKFLOW_LISTING_TIMEOUT_SECONDS,
         GobblinClusterConfigurationKeys.DEFAULT_HELIX_WORKFLOW_LISTING_TIMEOUT_SECONDS) * 1000;
 
+    this.jobStartTimes = new ConcurrentHashMap<>();
   }
 
   @Override
@@ -325,6 +329,8 @@ public class GobblinHelixJobScheduler extends JobScheduler implements StandardMe
         this.jobExecutor.execute(new NonScheduledJobRunner(jobProps,
                                  new GobblinHelixJobLauncherListener(this.launcherMetrics)));
       }
+
+      this.jobStartTimes.put(jobUri, Instant.now());
     } catch (JobException je) {
       LOGGER.error("Failed to schedule or run job " + jobUri, je);
     }
@@ -332,6 +338,14 @@ public class GobblinHelixJobScheduler extends JobScheduler implements StandardMe
 
   @Subscribe
   public void handleUpdateJobConfigArrival(UpdateJobConfigArrivalEvent updateJobArrival) {
+    Instant beginningOfTime = Instant.ofEpochMilli(0);
+    this.jobStartTimes.putIfAbsent(updateJobArrival.getJobName(), beginningOfTime);
+    Instant curTime = Instant.now();
+    Instant endTime = curTime.minus(1, ChronoUnit.SECONDS);
+    if (this.jobStartTimes.get(updateJobArrival.getJobName()).isAfter(endTime)) {
+      return;
+    }
+
     LOGGER.info("Received update for job configuration of job " + updateJobArrival.getJobName());
     try {
       handleDeleteJobConfigArrival(new DeleteJobConfigArrivalEvent(updateJobArrival.getJobName(),

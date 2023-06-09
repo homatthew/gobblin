@@ -20,6 +20,8 @@ package org.apache.gobblin.cluster;
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
+import java.nio.file.Files;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Properties;
@@ -32,6 +34,8 @@ import org.apache.helix.HelixManager;
 import org.apache.helix.HelixManagerFactory;
 import org.apache.helix.InstanceType;
 import org.assertj.core.util.Lists;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
@@ -51,6 +55,9 @@ import org.apache.gobblin.cluster.event.UpdateJobConfigArrivalEvent;
 import org.apache.gobblin.configuration.ConfigurationKeys;
 import org.apache.gobblin.runtime.job_catalog.NonObservingFSJobCatalog;
 import org.apache.gobblin.scheduler.SchedulerService;
+
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mockStatic;
 
 
 /**
@@ -73,6 +80,7 @@ public class GobblinHelixJobSchedulerTest {
 
   private final String workflowIdSuffix1 = "_1504201348471";
   private final String workflowIdSuffix2 = "_1504201348472";
+  private final String workflowIdSuffix3 = "_1504201348473";
 
   @BeforeClass
   public void setUp()
@@ -132,8 +140,17 @@ public class GobblinHelixJobSchedulerTest {
   @Test
   public void testNewJobAndUpdate()
       throws Exception {
+    Instant beginningOfTime = Instant.ofEpochSecond(0);
+    Instant newJobCreationTime = Instant.ofEpochSecond(10);
+    Instant jobUpdateTime = Instant.ofEpochSecond(12);
+
+    MockedStatic<Instant> instantMockedStatic = mockStatic(Instant.class, Mockito.CALLS_REAL_METHODS);
+    instantMockedStatic.when(Instant::now).thenReturn(newJobCreationTime, jobUpdateTime);
+    instantMockedStatic.when(() -> Instant.ofEpochMilli(eq(0L))).thenReturn(beginningOfTime);
+
+    java.nio.file.Path p = Files.createTempDirectory(GobblinHelixJobScheduler.class.getSimpleName());
     Config config = ConfigFactory.empty().withValue(ConfigurationKeys.JOB_CONFIG_FILE_GENERAL_PATH_KEY,
-        ConfigValueFactory.fromAnyRef("/tmp/" + GobblinHelixJobScheduler.class.getSimpleName()));
+        ConfigValueFactory.fromAnyRef(p.toString()));
     SchedulerService schedulerService = new SchedulerService(new Properties());
     NonObservingFSJobCatalog jobCatalog = new NonObservingFSJobCatalog(config);
     jobCatalog.startAsync();
@@ -169,18 +186,33 @@ public class GobblinHelixJobSchedulerTest {
 
     jobScheduler.handleUpdateJobConfigArrival(
         new UpdateJobConfigArrivalEvent(properties1.getProperty(ConfigurationKeys.JOB_NAME_KEY), properties1));
+    workFlowId = getWorkFlowId(newJobConfigArrivalEvent.getJobName(), workFlowId);
+    Assert.assertTrue(workFlowId.endsWith(workflowIdSuffix2));
+
+    properties1.setProperty(ConfigurationKeys.JOB_ID_KEY,
+        "job_" + properties1.getProperty(ConfigurationKeys.JOB_NAME_KEY) + workflowIdSuffix3);
+    jobScheduler.handleUpdateJobConfigArrival(
+        new UpdateJobConfigArrivalEvent(properties1.getProperty(ConfigurationKeys.JOB_NAME_KEY), properties1));
+    workFlowId = getWorkFlowId(newJobConfigArrivalEvent.getJobName(), workFlowId);
+    Assert.assertTrue(workFlowId.endsWith(workflowIdSuffix2));
+  }
+
+  private String getWorkFlowId(String jobName, String workFlowId)
+      throws Exception {
+    long endTime;
+    Map<String, String> workflowIdMap;
     this.helixManager.connect();
     endTime = System.currentTimeMillis() + 30000;
     while (System.currentTimeMillis() < endTime) {
       workflowIdMap = HelixUtils.getWorkflowIdsFromJobNames(this.helixManager,
-          Collections.singletonList(newJobConfigArrivalEvent.getJobName()));
-      if (workflowIdMap.containsKey(newJobConfigArrivalEvent.getJobName())) {
-        workFlowId = workflowIdMap.get(newJobConfigArrivalEvent.getJobName());
+          Collections.singletonList(jobName));
+      if (workflowIdMap.containsKey(jobName)) {
+        workFlowId = workflowIdMap.get(jobName);
         break;
       }
       Thread.sleep(100);
     }
-    Assert.assertTrue(workFlowId.endsWith(workflowIdSuffix2));
+    return workFlowId;
   }
 
   @AfterClass
