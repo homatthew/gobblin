@@ -17,7 +17,6 @@
 
 package org.apache.gobblin.yarn;
 
-import java.util.Collections;
 import java.util.List;
 
 import org.apache.commons.cli.CommandLine;
@@ -32,11 +31,6 @@ import org.apache.hadoop.yarn.api.ApplicationConstants;
 import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.hadoop.yarn.util.ConverterUtils;
-import org.apache.helix.NotificationContext;
-import org.apache.helix.messaging.handling.HelixTaskResult;
-import org.apache.helix.messaging.handling.MessageHandler;
-import org.apache.helix.messaging.handling.MultiTypeMessageHandlerFactory;
-import org.apache.helix.model.Message;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,15 +44,14 @@ import lombok.Getter;
 
 import org.apache.gobblin.annotation.Alpha;
 import org.apache.gobblin.cluster.GobblinClusterConfigurationKeys;
-import org.apache.gobblin.cluster.GobblinClusterManager;
 import org.apache.gobblin.cluster.GobblinClusterUtils;
+import org.apache.gobblin.cluster.GobblinTemporalClusterManager;
 import org.apache.gobblin.util.ConfigUtils;
 import org.apache.gobblin.util.JvmUtils;
 import org.apache.gobblin.util.PathUtils;
 import org.apache.gobblin.util.logs.Log4jConfigurationHelper;
 import org.apache.gobblin.util.logs.LogCopier;
 import org.apache.gobblin.util.reflection.GobblinConstructorUtils;
-import org.apache.gobblin.yarn.event.DelegationTokenUpdatedEvent;
 
 
 /**
@@ -72,7 +65,7 @@ import org.apache.gobblin.yarn.event.DelegationTokenUpdatedEvent;
  * @author Yinan Li
  */
 @Alpha
-public class GobblinTemporalApplicationMaster extends GobblinClusterManager {
+public class GobblinTemporalApplicationMaster extends GobblinTemporalClusterManager {
   private static final Logger LOGGER = LoggerFactory.getLogger(GobblinTemporalApplicationMaster.class);
 
   @Getter
@@ -128,78 +121,6 @@ public class GobblinTemporalApplicationMaster extends GobblinClusterManager {
    */
   private YarnContainerSecurityManager buildYarnContainerSecurityManager(Config config, FileSystem fs) {
     return new YarnAppMasterSecurityManager(config, fs, this.eventBus, this.logCopier, this.yarnService);
-  }
-
-  @Override
-  protected MultiTypeMessageHandlerFactory getUserDefinedMessageHandlerFactory() {
-    return new ControllerUserDefinedMessageHandlerFactory();
-  }
-
-  /**
-   * A custom {@link MultiTypeMessageHandlerFactory} for {@link ControllerUserDefinedMessageHandler}s that
-   * handle messages of type {@link Message.MessageType#USER_DEFINE_MSG}.
-   */
-  private class ControllerUserDefinedMessageHandlerFactory implements MultiTypeMessageHandlerFactory {
-
-    @Override
-    public MessageHandler createHandler(Message message, NotificationContext context) {
-      return new ControllerUserDefinedMessageHandler(message, context);
-    }
-
-    @Override
-    public String getMessageType() {
-      return Message.MessageType.USER_DEFINE_MSG.toString();
-    }
-
-    public List<String> getMessageTypes() {
-      return Collections.singletonList(getMessageType());
-    }
-
-    @Override
-    public void reset() {
-
-    }
-
-    /**
-     * A custom {@link MessageHandler} for handling user-defined messages to the controller.
-     *
-     * <p>
-     *   Currently it handles the following sub types of messages:
-     *
-     *   <ul>
-     *     <li>{@link HelixMessageSubTypes#TOKEN_FILE_UPDATED}</li>
-     *   </ul>
-     * </p>
-     */
-    private class ControllerUserDefinedMessageHandler extends MessageHandler {
-
-      public ControllerUserDefinedMessageHandler(Message message, NotificationContext context) {
-        super(message, context);
-      }
-
-      @Override
-      public HelixTaskResult handleMessage() {
-        String messageSubType = this._message.getMsgSubType();
-
-        if (messageSubType.equalsIgnoreCase(HelixMessageSubTypes.TOKEN_FILE_UPDATED.toString())) {
-          LOGGER.info("Handling message " + HelixMessageSubTypes.TOKEN_FILE_UPDATED.toString());
-
-          eventBus.post(new DelegationTokenUpdatedEvent());
-          HelixTaskResult helixTaskResult = new HelixTaskResult();
-          helixTaskResult.setSuccess(true);
-          return helixTaskResult;
-        }
-
-        throw new IllegalArgumentException(String.format("Unknown %s message subtype: %s",
-            Message.MessageType.USER_DEFINE_MSG.toString(), messageSubType));
-      }
-
-      @Override
-      public void onError(Exception e, ErrorCode code, ErrorType type) {
-        LOGGER.error(
-            String.format("Failed to handle message with exception %s, error code %s, error type %s", e, code, type));
-      }
-    }
   }
 
   private static Options buildOptions() {
