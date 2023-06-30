@@ -276,6 +276,7 @@ public class GobblinClusterManager implements ApplicationLauncher, StandardMetri
    */
   @Override
   public synchronized void start() {
+    // temporal workflow
     LOGGER.info("Starting the Gobblin Cluster Manager");
 
     this.eventBus.register(this);
