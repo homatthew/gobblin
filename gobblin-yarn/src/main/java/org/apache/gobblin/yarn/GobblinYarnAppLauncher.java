@@ -824,8 +824,7 @@ public class GobblinYarnAppLauncher {
 
   @VisibleForTesting
   protected String buildApplicationMasterCommand(String applicationId, int memoryMbs) {
-    // String appMasterClassName = GobblinTemporalApplicationMaster.class.getSimpleName();
-    String appMasterClassName = GobblinApplicationMaster.class.getSimpleName();
+    String appMasterClassName = GobblinTemporalApplicationMaster.class.getSimpleName();
     return new StringBuilder()
         .append(ApplicationConstants.Environment.JAVA_HOME.$()).append("/bin/java")
         .append(" -Xmx").append((int) (memoryMbs * this.jvmMemoryXmxRatio) - this.jvmMemoryOverheadMbs).append("M")
@@ -833,8 +832,7 @@ public class GobblinYarnAppLauncher {
         .append(" -D").append(GobblinYarnConfigurationKeys.GOBBLIN_YARN_CONTAINER_LOG_DIR_NAME).append("=").append(ApplicationConstants.LOG_DIR_EXPANSION_VAR)
         .append(" -D").append(GobblinYarnConfigurationKeys.GOBBLIN_YARN_CONTAINER_LOG_FILE_NAME).append("=").append(appMasterClassName).append(".").append(ApplicationConstants.STDOUT)
         .append(" ").append(JvmUtils.formatJvmArguments(this.appMasterJvmArgs))
-        // GobblinTemporalApplicationMaster
-        .append(" ").append(GobblinApplicationMaster.class.getName())
+        .append(" ").append(GobblinTemporalApplicationMaster.class.getName())
         .append(" --").append(GobblinClusterConfigurationKeys.APPLICATION_NAME_OPTION_NAME)
         .append(" ").append(this.applicationName)
         .append(" --").append(GobblinClusterConfigurationKeys.APPLICATION_ID_OPTION_NAME)

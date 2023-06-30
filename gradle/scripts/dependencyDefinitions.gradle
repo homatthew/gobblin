@@ -103,6 +103,7 @@ ext.externalDependency = [
     "quartz": "org.quartz-scheduler:quartz:2.2.3",
     "temporal-sdk": "io.temporal:temporal-sdk:1.20.0",
     "temporal-testing": "io.temporal:temporal-testing:1.20.0",
+    "temporalWorkflowClient.serverUri": "1.nephos-temporal.corp-lca1.atd.corp.linkedin.com:7233",
     "testng": "org.testng:testng:6.14.3",
     "junit": "junit:junit:4.13.2",
     "mockserver":"org.mock-server:mockserver-netty:3.10.4",
@@ -216,6 +217,7 @@ ext.externalDependency = [
     "postgresConnector": "org.postgresql:postgresql:42.1.4",
     "testContainers": "org.testcontainers:testcontainers:1.17.3",
     "testContainersMysql": "org.testcontainers:mysql:1.17.3",
+    "workflowClient.namespace": "gobblin-fastingest-internpoc",
     "xz": "org.tukaani:xz:1.8"
 ]
 
