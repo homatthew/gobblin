@@ -30,11 +30,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-
 import org.apache.commons.compress.utils.Sets;
 import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.helix.HelixDataAccessor;
-import org.apache.helix.HelixManager;
 import org.apache.helix.PropertyKey;
 import org.apache.helix.task.JobConfig;
 import org.apache.helix.task.JobContext;
@@ -91,7 +89,7 @@ public class YarnAutoScalingManager extends AbstractIdleService {
   public final static int DEFAULT_MAX_CONTAINER_IDLE_TIME_BEFORE_SCALING_DOWN_MINUTES = 10;
 
   private final Config config;
-  private final HelixManager helixManager;
+  // private final HelixManager helixManager;
   private final ScheduledExecutorService autoScalingExecutor;
   private final YarnService yarnService;
   private final int partitionsPerContainer;
@@ -101,9 +99,9 @@ public class YarnAutoScalingManager extends AbstractIdleService {
   private static final HashSet<TaskPartitionState>
       UNUSUAL_HELIX_TASK_STATES = Sets.newHashSet(TaskPartitionState.ERROR, TaskPartitionState.DROPPED, TaskPartitionState.COMPLETED, TaskPartitionState.TIMED_OUT);
 
-  public YarnAutoScalingManager(GobblinApplicationMaster appMaster) {
+  public YarnAutoScalingManager(GobblinTemporalApplicationMaster appMaster) {
     this.config = appMaster.getConfig();
-    this.helixManager = appMaster.getMultiManager().getJobClusterHelixManager();
+    // this.helixManager = appMaster.getMultiManager().getJobClusterHelixManager();
     this.yarnService = appMaster.getYarnService();
     this.partitionsPerContainer = ConfigUtils.getInt(this.config, AUTO_SCALING_PARTITIONS_PER_CONTAINER,
         DEFAULT_AUTO_SCALING_PARTITIONS_PER_CONTAINER);
@@ -136,11 +134,11 @@ public class YarnAutoScalingManager extends AbstractIdleService {
     log.info("Starting the " + YarnAutoScalingManager.class.getSimpleName());
     log.info("Scheduling the auto scaling task with an interval of {} seconds", scheduleInterval);
 
-    this.autoScalingExecutor.scheduleAtFixedRate(new YarnAutoScalingRunnable(new TaskDriver(this.helixManager),
-            this.yarnService, this.partitionsPerContainer, this.overProvisionFactor,
-            this.slidingFixedSizeWindow, this.helixManager.getHelixDataAccessor(), this.defaultHelixInstanceTags,
-            this.defaultContainerMemoryMbs, this.defaultContainerCores),
-        initialDelay, scheduleInterval, TimeUnit.SECONDS);
+//    this.autoScalingExecutor.scheduleAtFixedRate(new YarnAutoScalingRunnable(new TaskDriver(this.helixManager),
+//            this.yarnService, this.partitionsPerContainer, this.overProvisionFactor,
+//            this.slidingFixedSizeWindow, this.helixManager.getHelixDataAccessor(), this.defaultHelixInstanceTags,
+//            this.defaultContainerMemoryMbs, this.defaultContainerCores),
+//        initialDelay, scheduleInterval, TimeUnit.SECONDS);
   }
 
   @Override

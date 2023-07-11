@@ -17,9 +17,13 @@
 
 package org.apache.gobblin.cluster;
 
+import java.io.File;
 import java.io.IOException;
+import java.security.KeyStore;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -46,12 +50,18 @@ import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import com.typesafe.config.ConfigValueFactory;
 
+import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
+import io.grpc.netty.shaded.io.netty.handler.ssl.SslContext;
 import io.temporal.client.WorkflowClient;
 import io.temporal.client.WorkflowClientOptions;
 import io.temporal.client.WorkflowOptions;
 import io.temporal.client.WorkflowStub;
 import io.temporal.serviceclient.WorkflowServiceStubs;
 import io.temporal.serviceclient.WorkflowServiceStubsOptions;
+import io.temporal.worker.Worker;
+import io.temporal.worker.WorkerFactory;
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.TrustManagerFactory;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
@@ -59,7 +69,9 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.apache.gobblin.annotation.Alpha;
 import org.apache.gobblin.cluster.event.ClusterManagerShutdownRequest;
+import org.apache.gobblin.cluster.temporal.GobblinTemporalActivitiesImpl;
 import org.apache.gobblin.cluster.temporal.GobblinTemporalWorkflow;
+import org.apache.gobblin.cluster.temporal.GobblinTemporalWorkflowImpl;
 import org.apache.gobblin.cluster.temporal.Shared;
 import org.apache.gobblin.configuration.ConfigurationKeys;
 import org.apache.gobblin.instrumented.StandardMetricsBridge;
@@ -72,6 +84,8 @@ import org.apache.gobblin.scheduler.SchedulerService;
 import org.apache.gobblin.util.ConfigUtils;
 import org.apache.gobblin.util.JvmUtils;
 import org.apache.gobblin.util.reflection.GobblinConstructorUtils;
+
+import static org.apache.gobblin.security.ssl.SSLContextFactory.toInputStream;
 
 
 /**
@@ -208,7 +222,7 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
       ((Service) this.jobCatalog).startAsync().awaitRunning();
     }
 
-    this.applicationLauncher.start();
+    // this.applicationLauncher.start();
   }
 
   /**
@@ -230,6 +244,7 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
   /**
    * Start the Gobblin Cluster Manager.
    */
+  // @Import(clazz = ClientSslContextFactory.class, prefix = ClientSslContextFactory.SCOPE_PREFIX)
   @Override
   public synchronized void start() {
     // temporal workflow
@@ -263,40 +278,136 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
     }
     this.started = true;
 
-    // Define our workflow unique id
-    final String WORKFLOW_ID = "HelloWorldWorkflowID";
+    try {
+      String SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT = "gobblin.kafka.sharedConfig.";
+      String SSL_KEYMANAGER_ALGORITHM = SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT + "ssl.keymanager.algorithm";
+      String SSL_KEYSTORE_TYPE = SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT + "ssl.keystore.type";
+      String SSL_KEYSTORE_LOCATION = SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT + "ssl.keystore.location";
+      String SSL_KEY_PASSWORD = SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT + "ssl.key.password";
+      String SSL_TRUSTSTORE_LOCATION = SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT + "ssl.truststore.location";
+      String SSL_TRUSTSTORE_PASSWORD = SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT + "ssl.truststore.password";
 
-    /*
-     * Set Workflow options such as WorkflowId and Task Queue so the worker knows where to list and which workflows to execute.
-     */
-    WorkflowOptions options = WorkflowOptions.newBuilder()
-        .setWorkflowId(WORKFLOW_ID)
-        .setTaskQueue(Shared.HELLO_WORLD_TASK_QUEUE)
-        .build();
+      List<String> SSL_CONFIG_DEFAULT_SSL_PROTOCOLS = Collections.unmodifiableList(
+          Arrays.asList("TLSv1.3", "TLSv1.2"));
+      List<String> SSL_CONFIG_DEFAULT_CIPHER_SUITES = Collections.unmodifiableList(Arrays.asList(
+          // The following list is from https://github.com/netty/netty/blob/4.1/codec-http2/src/main/java/io/netty/handler/codec/http2/Http2SecurityUtil.java#L50
+          "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
 
-    WorkflowServiceStubs service =
-        WorkflowServiceStubs.newServiceStubs(
-            WorkflowServiceStubsOptions.newBuilder().setTarget("1.nephos-temporal.corp-lca1.atd.corp.linkedin.com:7233").build());
+          /* REQUIRED BY HTTP/2 SPEC */
+          "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+          /* REQUIRED BY HTTP/2 SPEC */
 
-    // WorkflowClient can be used to start, signal, query, cancel, and terminate Workflows.
-    WorkflowClient client =
-        WorkflowClient.newInstance(
-            service, WorkflowClientOptions.newBuilder().setNamespace("gobblin-fastingest-internpoc").build());
+          "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+          "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+          "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
+          "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
 
-    // Create the workflow client stub. It is used to start our workflow execution.
-    GobblinTemporalWorkflow workflow = client.newWorkflowStub(GobblinTemporalWorkflow.class, options);
+          /* TLS 1.3 ciphers */
+          "TLS_AES_128_GCM_SHA256",
+          "TLS_AES_256_GCM_SHA384",
+          "TLS_CHACHA20_POLY1305_SHA256"
+      ));
 
-    /*
-     * Execute our workflow and wait for it to complete. The call to our getGreeting method is
-     * synchronous.
-     *
-     * Replace the parameter "World" in the call to getGreeting() with your name.
-     */
-    String greeting = workflow.getGreeting("World");
+      String keyStoreType = this.config.getString(SSL_KEYSTORE_TYPE);
+      File keyStoreFile = new File(this.config.getString(SSL_KEYSTORE_LOCATION));
+      String keyStorePassword = config.getString(SSL_KEY_PASSWORD);
 
-    String workflowId = WorkflowStub.fromTyped(workflow).getExecution().getWorkflowId();
-    // Display workflow execution results
-    LOGGER.info(workflowId + " " + greeting);
+      KeyStore keyStore = KeyStore.getInstance(keyStoreType);
+      keyStore.load(toInputStream(keyStoreFile), keyStorePassword.toCharArray());
+
+      // Set key manager from key store
+      String sslKeyManagerAlgorithm = config.getString(SSL_KEYMANAGER_ALGORITHM);
+      KeyManagerFactory keyManagerFactory = KeyManagerFactory.getInstance(sslKeyManagerAlgorithm);
+      keyManagerFactory.init(keyStore, keyStorePassword.toCharArray());
+
+      // Set trust manager from trust store
+      KeyStore trustStore = KeyStore.getInstance("JKS");
+      File trustStoreFile = new File(this.config.getString(SSL_TRUSTSTORE_LOCATION));
+      String trustStorePassword = config.getString(SSL_TRUSTSTORE_PASSWORD);
+      trustStore.load(toInputStream(trustStoreFile), trustStorePassword.toCharArray());
+      TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance("SunX509");
+      trustManagerFactory.init(trustStore);
+
+      SslContext sslContext = GrpcSslContexts.forClient()
+          .keyManager(keyManagerFactory)
+          .trustManager(trustManagerFactory)
+          .protocols(SSL_CONFIG_DEFAULT_SSL_PROTOCOLS)
+          .ciphers(SSL_CONFIG_DEFAULT_CIPHER_SUITES)
+          .build();
+
+      WorkflowServiceStubs service =
+          WorkflowServiceStubs.newServiceStubs(
+              WorkflowServiceStubsOptions.newBuilder()
+                  .setTarget("1.nephos-temporal.corp-lca1.atd.corp.linkedin.com:7233")
+                  .setEnableHttps(true)
+                  .setSslContext(sslContext)
+                  .build());
+
+      // WorkflowClient can be used to start, signal, query, cancel, and terminate Workflows.
+      WorkflowClient client =
+          WorkflowClient.newInstance(
+              service, WorkflowClientOptions.newBuilder().setNamespace("gobblin-fastingest-internpoc").build());
+
+      /*
+       * Define the workflow factory. It is used to create workflow workers that poll specific Task Queues.
+       */
+      WorkerFactory factory = WorkerFactory.newInstance(client);
+
+      /*
+       * Define the workflow worker. Workflow workers listen to a defined task queue and process
+       * workflows and activities.
+       */
+      Worker worker = factory.newWorker(Shared.HELLO_WORLD_TASK_QUEUE);
+
+      /*
+       * Register our workflow implementation with the worker.
+       * Workflow implementations must be known to the worker at runtime in
+       * order to dispatch workflow tasks.
+       */
+      worker.registerWorkflowImplementationTypes(GobblinTemporalWorkflowImpl.class);
+
+      /*
+       * Register our Activity Types with the Worker. Since Activities are stateless and thread-safe,
+       * the Activity Type is a shared instance.
+       */
+      worker.registerActivitiesImplementations(new GobblinTemporalActivitiesImpl());
+
+      /*
+       * Start all the workers registered for a specific task queue.
+       * The started workers then start polling for workflows and activities.
+       */
+      factory.start();
+
+      // Define our workflow unique id
+      String WORKFLOW_ID = "HelloWorldWorkflowID";
+
+      /*
+       * Set Workflow options such as WorkflowId and Task Queue so the worker knows where to list and which workflows to execute.
+       */
+      WorkflowOptions options = WorkflowOptions.newBuilder()
+          .setWorkflowId(WORKFLOW_ID)
+          .setTaskQueue(Shared.HELLO_WORLD_TASK_QUEUE)
+          .build();
+
+
+      // Create the workflow client stub. It is used to start our workflow execution.
+      GobblinTemporalWorkflow workflow = client.newWorkflowStub(GobblinTemporalWorkflow.class, options);
+
+      /*
+       * Execute our workflow and wait for it to complete. The call to our getGreeting method is
+       * synchronous.
+       *
+       * Replace the parameter "World" in the call to getGreeting() with your name.
+       */
+      String greeting = workflow.getGreeting("World");
+
+      String workflowId = WorkflowStub.fromTyped(workflow).getExecution().getWorkflowId();
+      // Display workflow execution results
+      LOGGER.info(workflowId + " " + greeting);
+
+    }catch (Exception e) {
+      throw new RuntimeException(e);
+    }
 
   }
 

@@ -48,7 +48,6 @@ dependencies {
   compile externalDependency.avroMapredH2
   compile externalDependency.findBugsAnnotations
   compile externalDependency."temporal-sdk"
-  compile externalDependency."temporal-testing"
   compile (externalDependency.helix) {
     exclude group: 'io.dropwizard.metrics', module: 'metrics-core'
   }
@@ -58,7 +57,6 @@ dependencies {
 
   testCompile project(":gobblin-example")
 
-  testCompile externalDependency."temporal-testing"
   testCompile externalDependency.testng
   testCompile externalDependency.curatorFramework
   testCompile externalDependency.curatorTest
