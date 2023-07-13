@@ -31,8 +31,6 @@ import org.testng.annotations.Test;
 
 import junit.framework.TestCase;
 
-import org.apache.gobblin.cluster.GobblinHelixMultiManager;
-
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
@@ -40,11 +38,7 @@ import static org.mockito.Mockito.when;
 public class GobblinApplicationMasterTest extends TestCase {
   @Test
   public void testDisableTaskRunnersFromPreviousExecutions() {
-    GobblinHelixMultiManager mockMultiManager = Mockito.mock(GobblinHelixMultiManager.class);
-
     HelixManager mockHelixManager = Mockito.mock(HelixManager.class);
-    when(mockMultiManager.getJobClusterHelixManager()).thenReturn(mockHelixManager);
-
     HelixAdmin mockHelixAdmin = Mockito.mock(HelixAdmin.class);
     when(mockHelixManager.getClusterManagmentTool()).thenReturn(mockHelixAdmin);
     when(mockHelixManager.getClusterName()).thenReturn("mockCluster");
@@ -75,7 +69,7 @@ public class GobblinApplicationMasterTest extends TestCase {
     }
     when(mockAccessor.getChildValuesMap(mockLiveInstancesKey)).thenReturn(mockChildValues);
 
-    GobblinApplicationMaster.disableTaskRunnersFromPreviousExecutions(mockMultiManager);
+    GobblinApplicationMaster.disableTaskRunnersFromPreviousExecutions(mockHelixManager);
 
     for (int i = 0; i < instanceCount; i++) {
       Mockito.verify(mockHelixAdmin).enableInstance("mockCluster", gobblinYarnTaskRunnerPrefix.get(i), false);

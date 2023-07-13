@@ -19,6 +19,7 @@ package org.apache.gobblin.yarn;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.commons.cli.CommandLine;
@@ -45,6 +46,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.Service;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
@@ -55,9 +58,15 @@ import lombok.Getter;
 import org.apache.gobblin.annotation.Alpha;
 import org.apache.gobblin.cluster.GobblinClusterConfigurationKeys;
 import org.apache.gobblin.cluster.GobblinClusterManager;
+import org.apache.gobblin.cluster.GobblinClusterMetricTagNames;
 import org.apache.gobblin.cluster.GobblinClusterUtils;
-import org.apache.gobblin.cluster.GobblinHelixMultiManager;
 import org.apache.gobblin.cluster.HelixUtils;
+import org.apache.gobblin.configuration.ConfigurationKeys;
+import org.apache.gobblin.metrics.GobblinMetrics;
+import org.apache.gobblin.metrics.MetricReporterException;
+import org.apache.gobblin.metrics.MultiReporterException;
+import org.apache.gobblin.metrics.Tag;
+import org.apache.gobblin.metrics.event.EventSubmitter;
 import org.apache.gobblin.util.ConfigUtils;
 import org.apache.gobblin.util.JvmUtils;
 import org.apache.gobblin.util.PathUtils;
@@ -84,12 +93,22 @@ public class GobblinApplicationMaster extends GobblinClusterManager {
   @Getter
   private final YarnService yarnService;
   private LogCopier logCopier;
+  private String applicationName;
+
+  private final Optional<GobblinMetrics> gobblinMetrics;
+  private final Optional<EventSubmitter> eventSubmitter;
 
   public GobblinApplicationMaster(String applicationName, String applicationId, ContainerId containerId, Config config,
       YarnConfiguration yarnConfiguration) throws Exception {
     super(applicationName, applicationId, config.withValue(GobblinYarnConfigurationKeys.CONTAINER_NUM_KEY,
         ConfigValueFactory.fromAnyRef(YarnHelixUtils.getContainerNum(containerId.toString()))),
         Optional.<Path>absent());
+    this.applicationName = applicationName;
+    this.gobblinMetrics = config.getBoolean(ConfigurationKeys.METRICS_ENABLED_KEY) ?
+        Optional.of(buildGobblinMetrics()) : Optional.<GobblinMetrics>absent();
+
+    this.eventSubmitter = config.getBoolean(ConfigurationKeys.METRICS_ENABLED_KEY) ?
+        Optional.of(buildEventSubmitter()) : Optional.<EventSubmitter>absent();
 
     String containerLogDir = config.getString(GobblinYarnConfigurationKeys.LOGS_SINK_ROOT_DIR_KEY);
     GobblinYarnLogSource gobblinYarnLogSource = new GobblinYarnLogSource();
@@ -144,7 +163,15 @@ public class GobblinApplicationMaster extends GobblinClusterManager {
   @Override
   public synchronized void setupHelix() {
     super.setupHelix();
-    this.disableTaskRunnersFromPreviousExecutions(this.multiManager);
+    HelixManager helixManager = multiManager.getJobClusterHelixManager();
+
+    disableTaskRunnersFromPreviousExecutions(helixManager);
+    if (ConfigUtils.getBoolean(config, GobblinYarnConfigurationKeys.HELIX_PURGE_OFFLINE_INSTANCES_ENABLED,
+        GobblinYarnConfigurationKeys.DEFAULT_HELIX_PURGE_OFFLINE_INSTANCES_ENABLED)) {
+      purgeOfflineInstancesFromPreviousExecutions(helixManager);
+    }
+
+
   }
 
   /**
@@ -156,8 +183,7 @@ public class GobblinApplicationMaster extends GobblinClusterManager {
    * NOTE: this is a workaround for an existing YARN bug. Once YARN has a fix to guarantee container kills on application
    * completion, this method should be removed.
    */
-  public static void disableTaskRunnersFromPreviousExecutions(GobblinHelixMultiManager multiManager) {
-    HelixManager helixManager = multiManager.getJobClusterHelixManager();
+  public static void disableTaskRunnersFromPreviousExecutions(HelixManager helixManager) {
     HelixDataAccessor helixDataAccessor = helixManager.getHelixDataAccessor();
     String clusterName = helixManager.getClusterName();
     HelixAdmin helixAdmin = helixManager.getClusterManagmentTool();
@@ -168,6 +194,51 @@ public class GobblinApplicationMaster extends GobblinClusterManager {
       LOGGER.warn("Disabling instance: {}", taskRunner);
       helixAdmin.enableInstance(clusterName, taskRunner, false);
     }
+  }
+
+  public void purgeOfflineInstancesFromPreviousExecutions(HelixManager helixManager) {
+    long helixPurgeLaggingThresholdMs = ConfigUtils.getLong(config,
+        GobblinYarnConfigurationKeys.HELIX_PURGE_LAGGING_THRESHOLD_MILLIS,
+        GobblinYarnConfigurationKeys.DEFAULT_HELIX_PURGE_LAGGING_THRESHOLD_MILLIS);
+    long helixPurgeStatusPollingRateMs = ConfigUtils.getLong(config,
+        GobblinYarnConfigurationKeys.HELIX_PURGE_POLLING_RATE_MILLIS,
+        GobblinYarnConfigurationKeys.DEFAULT_HELIX_PURGE_POLLING_RATE_MILLIS);
+
+    LOGGER.info("Purging offline helix instances before allocating containers for helixClusterName={}, connectionString={}, helixPurgeStatusPollingRateMs={}",
+        helixManager.getClusterName(), helixManager.getMetadataStoreConnectionString(), helixPurgeStatusPollingRateMs);
+    HelixInstancePurgerWithMetrics purger = new HelixInstancePurgerWithMetrics(eventSubmitter.orNull(),
+        helixPurgeStatusPollingRateMs);
+    Map<String, String> gteMetadata = ImmutableMap.of(
+        "connectionString", helixManager.getMetadataStoreConnectionString(),
+        "clusterName", helixManager.getClusterName()
+    );
+    purger.purgeAllOfflineInstances(helixManager.getClusterManagmentTool(), helixManager.getClusterName(),
+        helixPurgeLaggingThresholdMs, gteMetadata);
+  }
+
+  private GobblinMetrics buildGobblinMetrics() {
+    // Create tags list
+    ImmutableList.Builder<Tag<?>> tags = new ImmutableList.Builder<>();
+    tags.add(new Tag<>(GobblinClusterMetricTagNames.APPLICATION_ID, this.applicationId));
+    tags.add(new Tag<>(GobblinClusterMetricTagNames.APPLICATION_NAME, this.applicationName));
+
+    // Intialize Gobblin metrics and start reporters
+    GobblinMetrics gobblinMetrics = GobblinMetrics.get(this.applicationId, null, tags.build());
+    try {
+      gobblinMetrics.startMetricReporting(ConfigUtils.configToProperties(config));
+    } catch (MultiReporterException ex) {
+      for (MetricReporterException e: ex.getExceptions()) {
+        LOGGER.error("Failed to start {} {} reporter.", e.getSinkType().name(), e.getReporterType().name(), e);
+      }
+    }
+
+    return gobblinMetrics;
+  }
+
+  private EventSubmitter buildEventSubmitter() {
+    return new EventSubmitter.Builder(this.gobblinMetrics.get().getMetricContext(),
+        GobblinYarnEventConstants.EVENT_NAMESPACE)
+        .build();
   }
 
   /**

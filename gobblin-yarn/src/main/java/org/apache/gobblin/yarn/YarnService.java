@@ -370,15 +370,6 @@ public class YarnService extends AbstractIdleService {
   }
 
   private void purgeHelixOfflineInstances(long laggingThresholdMs) {
-    LOGGER.info("Purging offline helix instances before allocating containers for helixClusterName={}, connectionString={}, helixPurgeStatusPollingRateMs={}",
-        helixManager.getClusterName(), helixManager.getMetadataStoreConnectionString(), this.helixPurgeStatusPollingRateMs);
-    HelixInstancePurgerWithMetrics purger = new HelixInstancePurgerWithMetrics(this.eventSubmitter.orNull(),
-        this.helixPurgeStatusPollingRateMs);
-    Map<String, String> gteMetadata = ImmutableMap.of(
-        "connectionString", this.helixManager.getMetadataStoreConnectionString(),
-        "clusterName", this.helixManager.getClusterName()
-    );
-    purger.purgeAllOfflineInstances(this.helixAdmin, this.helixManager.getClusterName(), laggingThresholdMs, gteMetadata);
   }
 
   @Override
