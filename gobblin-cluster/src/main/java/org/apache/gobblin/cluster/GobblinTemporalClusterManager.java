@@ -58,8 +58,6 @@ import io.temporal.client.WorkflowOptions;
 import io.temporal.client.WorkflowStub;
 import io.temporal.serviceclient.WorkflowServiceStubs;
 import io.temporal.serviceclient.WorkflowServiceStubsOptions;
-import io.temporal.worker.Worker;
-import io.temporal.worker.WorkerFactory;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.TrustManagerFactory;
 import lombok.AccessLevel;
@@ -69,9 +67,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.apache.gobblin.annotation.Alpha;
 import org.apache.gobblin.cluster.event.ClusterManagerShutdownRequest;
-import org.apache.gobblin.cluster.temporal.GobblinTemporalActivitiesImpl;
 import org.apache.gobblin.cluster.temporal.GobblinTemporalWorkflow;
-import org.apache.gobblin.cluster.temporal.GobblinTemporalWorkflowImpl;
 import org.apache.gobblin.cluster.temporal.Shared;
 import org.apache.gobblin.configuration.ConfigurationKeys;
 import org.apache.gobblin.instrumented.StandardMetricsBridge;
@@ -91,10 +87,6 @@ import static org.apache.gobblin.security.ssl.SSLContextFactory.toInputStream;
 /**
  * The central cluster manager for Gobblin Clusters.
  *
- * <p>
- *   This class runs the {@link GobblinHelixJobScheduler} for scheduling and running Gobblin jobs.
- *   This class serves as the Helix controller and it uses a ... temporal thing
- * </p>
  *
  * <p>
  *   This class will initiates a graceful shutdown of the cluster in the following conditions:
@@ -194,9 +186,9 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
 
       this.jobCatalog =
           (MutableJobCatalog) GobblinConstructorUtils.invokeFirstConstructor(Class.forName(jobCatalogClassName),
-              ImmutableList.of(config
-                  .getConfig(StringUtils.removeEnd(GobblinClusterConfigurationKeys.GOBBLIN_CLUSTER_PREFIX, "."))
-                  .withFallback(this.config)));
+          ImmutableList.of(config
+              .getConfig(StringUtils.removeEnd(GobblinClusterConfigurationKeys.GOBBLIN_CLUSTER_PREFIX, "."))
+              .withFallback(this.config)));
     } else {
       this.jobCatalog = null;
     }
@@ -222,7 +214,7 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
       ((Service) this.jobCatalog).startAsync().awaitRunning();
     }
 
-    // this.applicationLauncher.start();
+    this.applicationLauncher.start();
   }
 
   /**
@@ -246,9 +238,9 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
    */
   // @Import(clazz = ClientSslContextFactory.class, prefix = ClientSslContextFactory.SCOPE_PREFIX)
   @Override
-  public synchronized void start() {
+  public void start() {
     // temporal workflow
-    LOGGER.info("Starting the Gobblin Cluster Manager");
+    LOGGER.info("Starting the Gobblin Temporal Cluster Manager");
 
     this.eventBus.register(this);
 
@@ -279,138 +271,110 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
     this.started = true;
 
     try {
-      String SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT = "gobblin.kafka.sharedConfig.";
-      String SSL_KEYMANAGER_ALGORITHM = SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT + "ssl.keymanager.algorithm";
-      String SSL_KEYSTORE_TYPE = SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT + "ssl.keystore.type";
-      String SSL_KEYSTORE_LOCATION = SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT + "ssl.keystore.location";
-      String SSL_KEY_PASSWORD = SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT + "ssl.key.password";
-      String SSL_TRUSTSTORE_LOCATION = SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT + "ssl.truststore.location";
-      String SSL_TRUSTSTORE_PASSWORD = SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT + "ssl.truststore.password";
-
-      List<String> SSL_CONFIG_DEFAULT_SSL_PROTOCOLS = Collections.unmodifiableList(
-          Arrays.asList("TLSv1.3", "TLSv1.2"));
-      List<String> SSL_CONFIG_DEFAULT_CIPHER_SUITES = Collections.unmodifiableList(Arrays.asList(
-          // The following list is from https://github.com/netty/netty/blob/4.1/codec-http2/src/main/java/io/netty/handler/codec/http2/Http2SecurityUtil.java#L50
-          "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
-
-          /* REQUIRED BY HTTP/2 SPEC */
-          "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
-          /* REQUIRED BY HTTP/2 SPEC */
-
-          "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
-          "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
-          "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
-          "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
-
-          /* TLS 1.3 ciphers */
-          "TLS_AES_128_GCM_SHA256",
-          "TLS_AES_256_GCM_SHA384",
-          "TLS_CHACHA20_POLY1305_SHA256"
-      ));
-
-      String keyStoreType = this.config.getString(SSL_KEYSTORE_TYPE);
-      File keyStoreFile = new File(this.config.getString(SSL_KEYSTORE_LOCATION));
-      String keyStorePassword = config.getString(SSL_KEY_PASSWORD);
-
-      KeyStore keyStore = KeyStore.getInstance(keyStoreType);
-      keyStore.load(toInputStream(keyStoreFile), keyStorePassword.toCharArray());
-
-      // Set key manager from key store
-      String sslKeyManagerAlgorithm = config.getString(SSL_KEYMANAGER_ALGORITHM);
-      KeyManagerFactory keyManagerFactory = KeyManagerFactory.getInstance(sslKeyManagerAlgorithm);
-      keyManagerFactory.init(keyStore, keyStorePassword.toCharArray());
-
-      // Set trust manager from trust store
-      KeyStore trustStore = KeyStore.getInstance("JKS");
-      File trustStoreFile = new File(this.config.getString(SSL_TRUSTSTORE_LOCATION));
-      String trustStorePassword = config.getString(SSL_TRUSTSTORE_PASSWORD);
-      trustStore.load(toInputStream(trustStoreFile), trustStorePassword.toCharArray());
-      TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance("SunX509");
-      trustManagerFactory.init(trustStore);
-
-      SslContext sslContext = GrpcSslContexts.forClient()
-          .keyManager(keyManagerFactory)
-          .trustManager(trustManagerFactory)
-          .protocols(SSL_CONFIG_DEFAULT_SSL_PROTOCOLS)
-          .ciphers(SSL_CONFIG_DEFAULT_CIPHER_SUITES)
-          .build();
-
-      WorkflowServiceStubs service =
-          WorkflowServiceStubs.newServiceStubs(
-              WorkflowServiceStubsOptions.newBuilder()
-                  .setTarget("1.nephos-temporal.corp-lca1.atd.corp.linkedin.com:7233")
-                  .setEnableHttps(true)
-                  .setSslContext(sslContext)
-                  .build());
-
-      // WorkflowClient can be used to start, signal, query, cancel, and terminate Workflows.
-      WorkflowClient client =
-          WorkflowClient.newInstance(
-              service, WorkflowClientOptions.newBuilder().setNamespace("gobblin-fastingest-internpoc").build());
-
-      /*
-       * Define the workflow factory. It is used to create workflow workers that poll specific Task Queues.
-       */
-      WorkerFactory factory = WorkerFactory.newInstance(client);
-
-      /*
-       * Define the workflow worker. Workflow workers listen to a defined task queue and process
-       * workflows and activities.
-       */
-      Worker worker = factory.newWorker(Shared.HELLO_WORLD_TASK_QUEUE);
-
-      /*
-       * Register our workflow implementation with the worker.
-       * Workflow implementations must be known to the worker at runtime in
-       * order to dispatch workflow tasks.
-       */
-      worker.registerWorkflowImplementationTypes(GobblinTemporalWorkflowImpl.class);
-
-      /*
-       * Register our Activity Types with the Worker. Since Activities are stateless and thread-safe,
-       * the Activity Type is a shared instance.
-       */
-      worker.registerActivitiesImplementations(new GobblinTemporalActivitiesImpl());
-
-      /*
-       * Start all the workers registered for a specific task queue.
-       * The started workers then start polling for workflows and activities.
-       */
-      factory.start();
-
-      // Define our workflow unique id
-      String WORKFLOW_ID = "HelloWorldWorkflowID";
-
-      /*
-       * Set Workflow options such as WorkflowId and Task Queue so the worker knows where to list and which workflows to execute.
-       */
-      WorkflowOptions options = WorkflowOptions.newBuilder()
-          .setWorkflowId(WORKFLOW_ID)
-          .setTaskQueue(Shared.HELLO_WORLD_TASK_QUEUE)
-          .build();
-
-
-      // Create the workflow client stub. It is used to start our workflow execution.
-      GobblinTemporalWorkflow workflow = client.newWorkflowStub(GobblinTemporalWorkflow.class, options);
-
-      /*
-       * Execute our workflow and wait for it to complete. The call to our getGreeting method is
-       * synchronous.
-       *
-       * Replace the parameter "World" in the call to getGreeting() with your name.
-       */
-      String greeting = workflow.getGreeting("World");
-
-      String workflowId = WorkflowStub.fromTyped(workflow).getExecution().getWorkflowId();
-      // Display workflow execution results
-      LOGGER.info(workflowId + " " + greeting);
-
+      initiateWorkflow();
     }catch (Exception e) {
       throw new RuntimeException(e);
     }
-
   }
 
+  public void initiateWorkflow()
+      throws Exception {
+    LOGGER.info("Initiating Temporal Workflow");
+    WorkflowServiceStubs workflowServiceStubs = createServiceStubs();
+    WorkflowClient client =
+        WorkflowClient.newInstance(
+            workflowServiceStubs, WorkflowClientOptions.newBuilder().setNamespace("gobblin-fastingest-internpoc").build());
+
+    /*
+     * Set Workflow options such as WorkflowId and Task Queue so the worker knows where to list and which workflows to execute.
+     */
+    WorkflowOptions options = WorkflowOptions.newBuilder()
+        .setTaskQueue(Shared.HELLO_WORLD_TASK_QUEUE)
+        .build();
+
+    // Create the workflow client stub. It is used to start our workflow execution.
+    GobblinTemporalWorkflow workflow = client.newWorkflowStub(GobblinTemporalWorkflow.class, options);
+
+    /*
+     * Execute our workflow and wait for it to complete. The call to our getGreeting method is
+     * synchronous.
+     *
+     * Replace the parameter "World" in the call to getGreeting() with your name.
+     */
+    String greeting = workflow.getGreeting("World");
+
+    String workflowId = WorkflowStub.fromTyped(workflow).getExecution().getWorkflowId();
+    // Display workflow execution results
+    LOGGER.info(workflowId + " " + greeting);
+  }
+
+  public static WorkflowServiceStubs createServiceStubs()
+      throws Exception {
+    GobblinClusterUtils.setSystemProperties(ConfigFactory.load());
+    Config config = GobblinClusterUtils.addDynamicConfig(ConfigFactory.load());
+    String SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT = "gobblin.kafka.sharedConfig.";
+    String SSL_KEYMANAGER_ALGORITHM = SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT + "ssl.keymanager.algorithm";
+    String SSL_KEYSTORE_TYPE = SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT + "ssl.keystore.type";
+    String SSL_KEYSTORE_LOCATION = SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT + "ssl.keystore.location";
+    String SSL_KEY_PASSWORD = SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT + "ssl.key.password";
+    String SSL_TRUSTSTORE_LOCATION = SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT + "ssl.truststore.location";
+    String SSL_TRUSTSTORE_PASSWORD = SHARED_KAFKA_CONFIG_PREFIX_WITH_DOT + "ssl.truststore.password";
+
+    List<String> SSL_CONFIG_DEFAULT_SSL_PROTOCOLS = Collections.unmodifiableList(
+        Arrays.asList("TLSv1.2"));
+    List<String> SSL_CONFIG_DEFAULT_CIPHER_SUITES = Collections.unmodifiableList(Arrays.asList(
+        // The following list is from https://github.com/netty/netty/blob/4.1/codec-http2/src/main/java/io/netty/handler/codec/http2/Http2SecurityUtil.java#L50
+        "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+
+        /* REQUIRED BY HTTP/2 SPEC */
+        "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+        /* REQUIRED BY HTTP/2 SPEC */
+
+        "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+        "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+        "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
+        "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"
+    ));
+
+    String keyStoreType = config.getString(SSL_KEYSTORE_TYPE);
+    File keyStoreFile = new File(config.getString(SSL_KEYSTORE_LOCATION));
+    String keyStorePassword = config.getString(SSL_KEY_PASSWORD);
+
+    KeyStore keyStore = KeyStore.getInstance(keyStoreType);
+    keyStore.load(toInputStream(keyStoreFile), keyStorePassword.toCharArray());
+
+    // Set key manager from key store
+    String sslKeyManagerAlgorithm = config.getString(SSL_KEYMANAGER_ALGORITHM);
+    KeyManagerFactory keyManagerFactory = KeyManagerFactory.getInstance(sslKeyManagerAlgorithm);
+    keyManagerFactory.init(keyStore, keyStorePassword.toCharArray());
+
+    // Set trust manager from trust store
+    KeyStore trustStore = KeyStore.getInstance("JKS");
+    File trustStoreFile = new File(config.getString(SSL_TRUSTSTORE_LOCATION));
+    LOGGER.info("SSL_TRUSTSTORE_LOCATION " + config.getString(SSL_TRUSTSTORE_LOCATION));
+
+    String trustStorePassword = config.getString(SSL_TRUSTSTORE_PASSWORD);
+    trustStore.load(toInputStream(trustStoreFile), trustStorePassword.toCharArray());
+    TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance("SunX509");
+    trustManagerFactory.init(trustStore);
+
+    SslContext sslContext = GrpcSslContexts.forClient()
+        .keyManager(keyManagerFactory)
+        .trustManager(trustManagerFactory)
+        .protocols(SSL_CONFIG_DEFAULT_SSL_PROTOCOLS)
+        .ciphers(SSL_CONFIG_DEFAULT_CIPHER_SUITES)
+        .build();
+
+    LOGGER.info("SSLContext: " + sslContext);
+
+    return WorkflowServiceStubs.newServiceStubs(
+        WorkflowServiceStubsOptions.newBuilder()
+            .setTarget("1.nephos-temporal.corp-lca1.atd.corp.linkedin.com:7233")
+            .setEnableHttps(true)
+            .setSslContext(sslContext)
+            .build());
+
+  }
   /**
    * Stop the Gobblin Cluster Manager.
    */
@@ -536,17 +500,6 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
       try (GobblinTemporalClusterManager gobblinClusterManager = new GobblinTemporalClusterManager(
           cmd.getOptionValue(GobblinClusterConfigurationKeys.APPLICATION_NAME_OPTION_NAME), getApplicationId(),
           config, Optional.<Path>absent())) {
-
-        // In AWS / Yarn mode, the cluster Launcher takes care of setting up Helix cluster
-        /// .. but for Standalone mode, we go via this main() method, so setup the cluster here
-        if (isStandaloneClusterManager) {
-          // Create Helix cluster and connect to it
-          String zkConnectionString = config.getString(GobblinClusterConfigurationKeys.ZK_CONNECTION_STRING_KEY);
-          String helixClusterName = config.getString(GobblinClusterConfigurationKeys.HELIX_CLUSTER_NAME_KEY);
-          HelixUtils.createGobblinHelixCluster(zkConnectionString, helixClusterName, false);
-          LOGGER.info("Created Helix cluster " + helixClusterName);
-        }
-
         gobblinClusterManager.start();
       }
     } catch (ParseException pe) {

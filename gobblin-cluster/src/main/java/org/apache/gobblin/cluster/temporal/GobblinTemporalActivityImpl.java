@@ -18,10 +18,16 @@
 // @@@SNIPSTART hello-world-project-template-java-activity
 package org.apache.gobblin.cluster.temporal;
 
-public class GobblinTemporalActivitiesImpl implements GobblinTemporalActivities {
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+
+public class GobblinTemporalActivityImpl implements GobblinTemporalActivity {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(GobblinTemporalActivityImpl.class);
     @Override
     public String composeGreeting(String name) {
+        LOGGER.info("Activity triggered");
         return "Hello " + name + "!";
     }
 

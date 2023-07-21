@@ -22,20 +22,14 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Objects;
 import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-
 
 import org.apache.commons.compress.utils.Sets;
 import org.apache.hadoop.yarn.api.records.Resource;
-import org.apache.helix.HelixDataAccessor;
-import org.apache.helix.HelixManager;
-import org.apache.helix.PropertyKey;
 import org.apache.helix.task.JobConfig;
 import org.apache.helix.task.JobContext;
 import org.apache.helix.task.JobDag;
@@ -59,15 +53,13 @@ import org.apache.gobblin.cluster.GobblinClusterConfigurationKeys;
 import org.apache.gobblin.util.ConfigUtils;
 import org.apache.gobblin.util.ExecutorsUtils;
 
-import static org.apache.gobblin.yarn.GobblinYarnTaskRunner.HELIX_YARN_INSTANCE_NAME_PREFIX;
-
 
 /**
  * The autoscaling manager is responsible for figuring out how many containers are required for the workload and
- * requesting the {@link YarnService} to request that many containers.
+ * requesting the {@link TemporalYarnService} to request that many containers.
  */
 @Slf4j
-public class YarnAutoScalingManager extends AbstractIdleService {
+public class TemporalYarnAutoScalingManager extends AbstractIdleService {
   private final String AUTO_SCALING_PREFIX = GobblinYarnConfigurationKeys.GOBBLIN_YARN_PREFIX + "autoScaling.";
   private final String AUTO_SCALING_POLLING_INTERVAL_SECS =
       AUTO_SCALING_PREFIX + "pollingIntervalSeconds";
@@ -91,9 +83,9 @@ public class YarnAutoScalingManager extends AbstractIdleService {
   public final static int DEFAULT_MAX_CONTAINER_IDLE_TIME_BEFORE_SCALING_DOWN_MINUTES = 10;
 
   private final Config config;
-  private final HelixManager helixManager;
+  // private final HelixManager helixManager;
   private final ScheduledExecutorService autoScalingExecutor;
-  private final YarnService yarnService;
+  private final TemporalYarnService temporalYarnService;
   private final int partitionsPerContainer;
   private final double overProvisionFactor;
   private final SlidingWindowReservoir slidingFixedSizeWindow;
@@ -101,10 +93,9 @@ public class YarnAutoScalingManager extends AbstractIdleService {
   private static final HashSet<TaskPartitionState>
       UNUSUAL_HELIX_TASK_STATES = Sets.newHashSet(TaskPartitionState.ERROR, TaskPartitionState.DROPPED, TaskPartitionState.COMPLETED, TaskPartitionState.TIMED_OUT);
 
-  public YarnAutoScalingManager(GobblinApplicationMaster appMaster) {
+  public TemporalYarnAutoScalingManager(GobblinTemporalApplicationMaster appMaster) {
     this.config = appMaster.getConfig();
-    this.helixManager = appMaster.getMultiManager().getJobClusterHelixManager();
-    this.yarnService = appMaster.getYarnService();
+    this.temporalYarnService = appMaster.getTemporalYarnService();
     this.partitionsPerContainer = ConfigUtils.getInt(this.config, AUTO_SCALING_PARTITIONS_PER_CONTAINER,
         DEFAULT_AUTO_SCALING_PARTITIONS_PER_CONTAINER);
 
@@ -133,19 +124,19 @@ public class YarnAutoScalingManager extends AbstractIdleService {
         DEFAULT_AUTO_SCALING_POLLING_INTERVAL_SECS);
     int initialDelay = ConfigUtils.getInt(this.config, AUTO_SCALING_INITIAL_DELAY,
         DEFAULT_AUTO_SCALING_INITIAL_DELAY_SECS);
-    log.info("Starting the " + YarnAutoScalingManager.class.getSimpleName());
+    log.info("Starting the " + TemporalYarnAutoScalingManager.class.getSimpleName());
     log.info("Scheduling the auto scaling task with an interval of {} seconds", scheduleInterval);
 
-    this.autoScalingExecutor.scheduleAtFixedRate(new YarnAutoScalingRunnable(new TaskDriver(this.helixManager),
-            this.yarnService, this.partitionsPerContainer, this.overProvisionFactor,
-            this.slidingFixedSizeWindow, this.helixManager.getHelixDataAccessor(), this.defaultHelixInstanceTags,
-            this.defaultContainerMemoryMbs, this.defaultContainerCores),
-        initialDelay, scheduleInterval, TimeUnit.SECONDS);
+//    this.autoScalingExecutor.scheduleAtFixedRate(new TemporalYarnAutoScalingRunnable(new TaskDriver(this.helixManager),
+//            this.temporalYarnService, this.partitionsPerContainer, this.overProvisionFactor,
+//            this.slidingFixedSizeWindow, this.defaultHelixInstanceTags,
+//            this.defaultContainerMemoryMbs, this.defaultContainerCores),
+//        initialDelay, scheduleInterval, TimeUnit.SECONDS);
   }
 
   @Override
   protected void shutDown() {
-    log.info("Stopping the " + YarnAutoScalingManager.class.getSimpleName());
+    log.info("Stopping the " + TemporalYarnAutoScalingManager.class.getSimpleName());
 
     ExecutorsUtils.shutdownExecutorService(this.autoScalingExecutor, Optional.of(log));
   }
@@ -156,13 +147,12 @@ public class YarnAutoScalingManager extends AbstractIdleService {
    */
   @VisibleForTesting
   @AllArgsConstructor
-  static class YarnAutoScalingRunnable implements Runnable {
+  static class TemporalYarnAutoScalingRunnable implements Runnable {
     private final TaskDriver taskDriver;
-    private final YarnService yarnService;
+    private final TemporalYarnService temporalYarnService;
     private final int partitionsPerContainer;
     private final double overProvisionFactor;
     private final SlidingWindowReservoir slidingWindowReservoir;
-    private final HelixDataAccessor helixDataAccessor;
     private final String defaultHelixInstanceTags;
     private final int defaultContainerMemoryMbs;
     private final int defaultContainerCores;
@@ -185,34 +175,8 @@ public class YarnAutoScalingManager extends AbstractIdleService {
     }
 
     /**
-     * Getting all instances (Helix Participants) in cluster at this moment.
-     * Note that the raw result could contains AppMaster node and replanner node.
-     * @param filterString Helix instances whose name containing fitlerString will pass filtering.
-     */
-    private Set<String> getParticipants(String filterString) {
-      PropertyKey.Builder keyBuilder = helixDataAccessor.keyBuilder();
-      return helixDataAccessor.getChildValuesMap(keyBuilder.liveInstances())
-          .keySet().stream().filter(x -> filterString.isEmpty() || x.contains(filterString)).collect(Collectors.toSet());
-    }
-
-    private String getInuseParticipantForHelixPartition(JobContext jobContext, int partition) {
-      if (jobContext.getPartitionNumAttempts(partition) > THRESHOLD_NUMBER_OF_ATTEMPTS_FOR_LOGGING) {
-        log.warn("Helix task {} has been retried for {} times, please check the config to see how we can handle this task better",
-            jobContext.getTaskIdForPartition(partition), jobContext.getPartitionNumAttempts(partition));
-      }
-      if (!UNUSUAL_HELIX_TASK_STATES.contains(jobContext.getPartitionState(partition))) {
-        return jobContext.getAssignedParticipant(partition);
-      }
-      // adding log here now for debugging
-      //todo: if this happens frequently, we should reset to status to retriable or at least report the error earlier
-      log.info("Helix task {} is in {} state which is unexpected, please watch out to see if this get recovered",
-          jobContext.getTaskIdForPartition(partition), jobContext.getPartitionState(partition));
-      return null;
-    }
-
-    /**
      * Iterate through the workflows configured in Helix to figure out the number of required partitions
-     * and request the {@link YarnService} to scale to the desired number of containers.
+     * and request the {@link TemporalYarnService} to scale to the desired number of containers.
      */
     @VisibleForTesting
     void runInternal() {
@@ -243,10 +207,6 @@ public class YarnAutoScalingManager extends AbstractIdleService {
           if (jobContext != null) {
             log.debug("JobContext {} num partitions {}", jobContext, jobContext.getPartitionSet().size());
 
-            inUseInstances.addAll(jobContext.getPartitionSet().stream()
-                .map(i -> getInuseParticipantForHelixPartition(jobContext, i))
-                .filter(Objects::nonNull).collect(Collectors.toSet()));
-
             numPartitions = jobContext.getPartitionSet().size();
             // Job level config for helix instance tags takes precedence over other tag configurations
             if (jobConfig != null) {
@@ -270,31 +230,13 @@ public class YarnAutoScalingManager extends AbstractIdleService {
               jobName, jobTag, numPartitions, containerCount);
         }
       }
-      // Find all participants appearing in this cluster. Note that Helix instances can contain cluster-manager
-      // and potentially replanner-instance.
-      Set<String> allParticipants = getParticipants(HELIX_YARN_INSTANCE_NAME_PREFIX);
-
-      // Find all joined participants not in-use for this round of inspection.
-      // If idle time is beyond tolerance, mark the instance as unused by assigning timestamp as -1.
-      for (String participant : allParticipants) {
-        if (!inUseInstances.contains(participant)) {
-          instanceIdleSince.putIfAbsent(participant, System.currentTimeMillis());
-          if (!isInstanceUnused(participant)) {
-            inUseInstances.add(participant);
-          }
-        } else {
-          // A previously idle instance is now detected to be in use.
-          // Remove this instance if existed in the tracking map.
-          instanceIdleSince.remove(participant);
-        }
-      }
       slidingWindowReservoir.add(yarnContainerRequestBundle);
 
       log.debug("There are {} containers being requested in total, tag-count map {}, tag-resource map {}",
           yarnContainerRequestBundle.getTotalContainers(), yarnContainerRequestBundle.getHelixTagContainerCountMap(),
           yarnContainerRequestBundle.getHelixTagResourceMap());
 
-      this.yarnService.requestTargetNumberOfContainers(slidingWindowReservoir.getMax(), inUseInstances);
+      this.temporalYarnService.requestTargetNumberOfContainers(slidingWindowReservoir.getMax(), inUseInstances);
     }
 
     @VisibleForTesting

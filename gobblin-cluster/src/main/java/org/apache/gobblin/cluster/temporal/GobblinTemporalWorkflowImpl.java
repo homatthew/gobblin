@@ -20,7 +20,11 @@ package org.apache.gobblin.cluster.temporal;
 
 import java.time.Duration;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.temporal.activity.ActivityOptions;
+import io.temporal.common.RetryOptions;
 import io.temporal.workflow.Workflow;
 
 public class GobblinTemporalWorkflowImpl implements GobblinTemporalWorkflow {
@@ -30,8 +34,17 @@ public class GobblinTemporalWorkflowImpl implements GobblinTemporalWorkflow {
      * - setStartToCloseTimeout
      * - setScheduleToCloseTimeout
      */
-    ActivityOptions options = ActivityOptions.newBuilder()
+
+    private final RetryOptions retryoptions = RetryOptions.newBuilder()
+        .setInitialInterval(Duration.ofSeconds(1))
+        .setMaximumInterval(Duration.ofSeconds(100))
+        .setBackoffCoefficient(2)
+        .setMaximumAttempts(500)
+        .build();
+
+    private final ActivityOptions options = ActivityOptions.newBuilder()
             .setStartToCloseTimeout(Duration.ofSeconds(60))
+            .setRetryOptions(retryoptions)
             .build();
 
     /*
@@ -42,8 +55,8 @@ public class GobblinTemporalWorkflowImpl implements GobblinTemporalWorkflow {
      *
      * The activity options that were defined above are passed in as a parameter.
      */
-    private final GobblinTemporalActivities activity = Workflow.newActivityStub(GobblinTemporalActivities.class, options);
-
+    private final GobblinTemporalActivity activity = Workflow.newActivityStub(GobblinTemporalActivity.class, options);
+    private static final Logger LOGGER = LoggerFactory.getLogger(GobblinTemporalWorkflowImpl.class);
     // This is the entry point to the Workflow.
     @Override
     public String getGreeting(String name) {
@@ -52,6 +65,7 @@ public class GobblinTemporalWorkflowImpl implements GobblinTemporalWorkflow {
          * If there were other Activity methods they would be orchestrated here or from within other Activities.
          * This is a blocking call that returns only after the activity has completed.
          */
+        LOGGER.info("Workflow triggered");
         return activity.composeGreeting(name);
     }
 }
