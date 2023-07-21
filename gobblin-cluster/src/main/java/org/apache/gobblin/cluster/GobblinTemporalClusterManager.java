@@ -433,7 +433,6 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
     stop();
   }
 
-
   @Override
   public void close() throws IOException {
     this.applicationLauncher.close();

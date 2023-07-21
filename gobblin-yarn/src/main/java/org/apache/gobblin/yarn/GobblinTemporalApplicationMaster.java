@@ -58,7 +58,7 @@ import org.apache.gobblin.util.reflection.GobblinConstructorUtils;
  * The Yarn ApplicationMaster class for Gobblin.
  *
  * <p>
- *   This class runs the {@link TemporalYarnService} for all Yarn-related stuffs like ApplicationMaster registration
+ *   This class runs the {@link YarnTemporalService} for all Yarn-related stuffs like ApplicationMaster registration
  *   and un-registration and Yarn container provisioning.
  * </p>
  *
@@ -69,7 +69,7 @@ public class GobblinTemporalApplicationMaster extends GobblinTemporalClusterMana
   private static final Logger LOGGER = LoggerFactory.getLogger(GobblinTemporalApplicationMaster.class);
 
   @Getter
-  private final TemporalYarnService temporalYarnService;
+  private final YarnTemporalService _yarnTemporalService;
   private LogCopier logCopier;
 
   public GobblinTemporalApplicationMaster(String applicationName, String applicationId, ContainerId containerId, Config config,
@@ -88,8 +88,8 @@ public class GobblinTemporalApplicationMaster extends GobblinTemporalClusterMana
     }
     YarnHelixUtils.setYarnClassPath(config, yarnConfiguration);
     YarnHelixUtils.setAdditionalYarnClassPath(config, yarnConfiguration);
-    this.temporalYarnService = buildTemporalYarnService(this.config, applicationName, this.applicationId, yarnConfiguration, this.fs);
-    this.applicationLauncher.addService(this.temporalYarnService);
+    this._yarnTemporalService = buildTemporalYarnService(this.config, applicationName, this.applicationId, yarnConfiguration, this.fs);
+    this.applicationLauncher.addService(this._yarnTemporalService);
 
     if (UserGroupInformation.isSecurityEnabled()) {
       LOGGER.info("Adding YarnContainerSecurityManager since security is enabled");
@@ -107,19 +107,19 @@ public class GobblinTemporalApplicationMaster extends GobblinTemporalClusterMana
   }
 
   /**
-   * Build the {@link TemporalYarnService} for the Application Master.
+   * Build the {@link YarnTemporalService} for the Application Master.
    */
-  protected TemporalYarnService buildTemporalYarnService(Config config, String applicationName, String applicationId,
+  protected YarnTemporalService buildTemporalYarnService(Config config, String applicationName, String applicationId,
       YarnConfiguration yarnConfiguration, FileSystem fs)
       throws Exception {
-    return new TemporalYarnService(config, applicationName, applicationId, yarnConfiguration, fs, this.eventBus);
+    return new YarnTemporalService(config, applicationName, applicationId, yarnConfiguration, fs, this.eventBus);
   }
 
   /**
    * Build the {@link YarnAppMasterSecurityManager} for the Application Master.
    */
   private YarnContainerSecurityManager buildYarnContainerSecurityManager(Config config, FileSystem fs) {
-    return new YarnTemporalAppMasterSecurityManager(config, fs, this.eventBus, this.logCopier, this.temporalYarnService);
+    return new YarnTemporalAppMasterSecurityManager(config, fs, this.eventBus, this.logCopier, this._yarnTemporalService);
   }
 
   private static Options buildOptions() {

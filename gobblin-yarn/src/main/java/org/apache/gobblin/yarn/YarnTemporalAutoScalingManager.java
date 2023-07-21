@@ -56,10 +56,10 @@ import org.apache.gobblin.util.ExecutorsUtils;
 
 /**
  * The autoscaling manager is responsible for figuring out how many containers are required for the workload and
- * requesting the {@link TemporalYarnService} to request that many containers.
+ * requesting the {@link YarnTemporalService} to request that many containers.
  */
 @Slf4j
-public class TemporalYarnAutoScalingManager extends AbstractIdleService {
+public class YarnTemporalAutoScalingManager extends AbstractIdleService {
   private final String AUTO_SCALING_PREFIX = GobblinYarnConfigurationKeys.GOBBLIN_YARN_PREFIX + "autoScaling.";
   private final String AUTO_SCALING_POLLING_INTERVAL_SECS =
       AUTO_SCALING_PREFIX + "pollingIntervalSeconds";
@@ -85,7 +85,7 @@ public class TemporalYarnAutoScalingManager extends AbstractIdleService {
   private final Config config;
   // private final HelixManager helixManager;
   private final ScheduledExecutorService autoScalingExecutor;
-  private final TemporalYarnService temporalYarnService;
+  private final YarnTemporalService _yarnTemporalService;
   private final int partitionsPerContainer;
   private final double overProvisionFactor;
   private final SlidingWindowReservoir slidingFixedSizeWindow;
@@ -93,9 +93,9 @@ public class TemporalYarnAutoScalingManager extends AbstractIdleService {
   private static final HashSet<TaskPartitionState>
       UNUSUAL_HELIX_TASK_STATES = Sets.newHashSet(TaskPartitionState.ERROR, TaskPartitionState.DROPPED, TaskPartitionState.COMPLETED, TaskPartitionState.TIMED_OUT);
 
-  public TemporalYarnAutoScalingManager(GobblinTemporalApplicationMaster appMaster) {
+  public YarnTemporalAutoScalingManager(GobblinTemporalApplicationMaster appMaster) {
     this.config = appMaster.getConfig();
-    this.temporalYarnService = appMaster.getTemporalYarnService();
+    this._yarnTemporalService = appMaster.get_yarnTemporalService();
     this.partitionsPerContainer = ConfigUtils.getInt(this.config, AUTO_SCALING_PARTITIONS_PER_CONTAINER,
         DEFAULT_AUTO_SCALING_PARTITIONS_PER_CONTAINER);
 
@@ -124,7 +124,7 @@ public class TemporalYarnAutoScalingManager extends AbstractIdleService {
         DEFAULT_AUTO_SCALING_POLLING_INTERVAL_SECS);
     int initialDelay = ConfigUtils.getInt(this.config, AUTO_SCALING_INITIAL_DELAY,
         DEFAULT_AUTO_SCALING_INITIAL_DELAY_SECS);
-    log.info("Starting the " + TemporalYarnAutoScalingManager.class.getSimpleName());
+    log.info("Starting the " + YarnTemporalAutoScalingManager.class.getSimpleName());
     log.info("Scheduling the auto scaling task with an interval of {} seconds", scheduleInterval);
 
 //    this.autoScalingExecutor.scheduleAtFixedRate(new TemporalYarnAutoScalingRunnable(new TaskDriver(this.helixManager),
@@ -136,7 +136,7 @@ public class TemporalYarnAutoScalingManager extends AbstractIdleService {
 
   @Override
   protected void shutDown() {
-    log.info("Stopping the " + TemporalYarnAutoScalingManager.class.getSimpleName());
+    log.info("Stopping the " + YarnTemporalAutoScalingManager.class.getSimpleName());
 
     ExecutorsUtils.shutdownExecutorService(this.autoScalingExecutor, Optional.of(log));
   }
@@ -149,7 +149,7 @@ public class TemporalYarnAutoScalingManager extends AbstractIdleService {
   @AllArgsConstructor
   static class TemporalYarnAutoScalingRunnable implements Runnable {
     private final TaskDriver taskDriver;
-    private final TemporalYarnService temporalYarnService;
+    private final YarnTemporalService _yarnTemporalService;
     private final int partitionsPerContainer;
     private final double overProvisionFactor;
     private final SlidingWindowReservoir slidingWindowReservoir;
@@ -176,7 +176,7 @@ public class TemporalYarnAutoScalingManager extends AbstractIdleService {
 
     /**
      * Iterate through the workflows configured in Helix to figure out the number of required partitions
-     * and request the {@link TemporalYarnService} to scale to the desired number of containers.
+     * and request the {@link YarnTemporalService} to scale to the desired number of containers.
      */
     @VisibleForTesting
     void runInternal() {
@@ -236,7 +236,7 @@ public class TemporalYarnAutoScalingManager extends AbstractIdleService {
           yarnContainerRequestBundle.getTotalContainers(), yarnContainerRequestBundle.getHelixTagContainerCountMap(),
           yarnContainerRequestBundle.getHelixTagResourceMap());
 
-      this.temporalYarnService.requestTargetNumberOfContainers(slidingWindowReservoir.getMax(), inUseInstances);
+      this._yarnTemporalService.requestTargetNumberOfContainers(slidingWindowReservoir.getMax(), inUseInstances);
     }
 
     @VisibleForTesting

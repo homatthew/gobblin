@@ -113,9 +113,9 @@ import org.apache.gobblin.yarn.event.NewContainerRequest;
  *
  * @author Yinan Li
  */
-public class TemporalYarnService extends AbstractIdleService {
+public class YarnTemporalService extends AbstractIdleService {
 
-  private static final Logger LOGGER = LoggerFactory.getLogger(TemporalYarnService.class);
+  private static final Logger LOGGER = LoggerFactory.getLogger(YarnTemporalService.class);
 
   private static final String UNKNOWN_HELIX_INSTANCE = "UNKNOWN";
 
@@ -175,9 +175,6 @@ public class TemporalYarnService extends AbstractIdleService {
   @Getter(AccessLevel.PROTECTED)
   private final Cache<ContainerId, String> releasedContainerCache;
 
-  // A generator for an integer ID of a Helix instance (participant)
-  private final AtomicInteger helixInstanceIdGenerator = new AtomicInteger(0);
-
   // A map from Helix instance names to the number times the instances are retried to be started
   private final ConcurrentMap<String, AtomicInteger> helixInstanceRetryCount = Maps.newConcurrentMap();
 
@@ -188,11 +185,6 @@ public class TemporalYarnService extends AbstractIdleService {
 
   // The map from helix tag to allocated container count
   private final ConcurrentMap<String, AtomicInteger> allocatedContainerCountMap = Maps.newConcurrentMap();
-
-  private final boolean isPurgingOfflineHelixInstancesEnabled;
-  private final long helixPurgeLaggingThresholdMs;
-  private final long helixPurgeStatusPollingRateMs;
-  private final ConcurrentMap<ContainerId, Long> containerIdleSince = Maps.newConcurrentMap();
   private final ConcurrentMap<ContainerId, String> removedContainerID = Maps.newConcurrentMap();
 
   private volatile YarnContainerRequestBundle yarnContainerRequest;
@@ -200,9 +192,8 @@ public class TemporalYarnService extends AbstractIdleService {
   private final Map<String, Integer> resourcePriorityMap = new HashMap<>();
 
   private volatile boolean shutdownInProgress = false;
-  private volatile boolean startupInProgress = true;
 
-  public TemporalYarnService(Config config, String applicationName, String applicationId, YarnConfiguration yarnConfiguration,
+  public YarnTemporalService(Config config, String applicationName, String applicationId, YarnConfiguration yarnConfiguration,
       FileSystem fs, EventBus eventBus) throws Exception {
     this.applicationName = applicationName;
     this.applicationId = applicationId;
@@ -237,15 +228,6 @@ public class TemporalYarnService extends AbstractIdleService {
     this.helixInstanceMaxRetries = config.getInt(GobblinYarnConfigurationKeys.HELIX_INSTANCE_MAX_RETRIES);
     this.helixInstanceTags = ConfigUtils.getString(config,
         GobblinClusterConfigurationKeys.HELIX_INSTANCE_TAGS_KEY, GobblinClusterConfigurationKeys.HELIX_DEFAULT_TAG);
-    this.isPurgingOfflineHelixInstancesEnabled = ConfigUtils.getBoolean(config,
-        GobblinYarnConfigurationKeys.HELIX_PURGE_OFFLINE_INSTANCES_ENABLED,
-        GobblinYarnConfigurationKeys.DEFAULT_HELIX_PURGE_OFFLINE_INSTANCES_ENABLED);
-    this.helixPurgeLaggingThresholdMs = ConfigUtils.getLong(config,
-        GobblinYarnConfigurationKeys.HELIX_PURGE_LAGGING_THRESHOLD_MILLIS,
-        GobblinYarnConfigurationKeys.DEFAULT_HELIX_PURGE_LAGGING_THRESHOLD_MILLIS);
-    this.helixPurgeStatusPollingRateMs = ConfigUtils.getLong(config,
-        GobblinYarnConfigurationKeys.HELIX_PURGE_POLLING_RATE_MILLIS,
-        GobblinYarnConfigurationKeys.DEFAULT_HELIX_PURGE_POLLING_RATE_MILLIS);
 
     this.containerJvmArgs = config.hasPath(GobblinYarnConfigurationKeys.CONTAINER_JVM_ARGS_KEY) ?
         Optional.of(config.getString(GobblinYarnConfigurationKeys.CONTAINER_JVM_ARGS_KEY)) :
@@ -350,7 +332,6 @@ public class TemporalYarnService extends AbstractIdleService {
 
     LOGGER.info("Requesting initial containers");
     requestInitialContainers(this.initialContainers);
-    startupInProgress = false;
   }
 
   @Override
@@ -1014,7 +995,7 @@ public class TemporalYarnService extends AbstractIdleService {
       this.container = container;
       this.helixParticipantId = helixParticipantId;
       this.helixTag = helixTag;
-      this.startupCommand = TemporalYarnService.this.buildContainerCommand(container, helixParticipantId, helixTag);
+      this.startupCommand = YarnTemporalService.this.buildContainerCommand(container, helixParticipantId, helixTag);
     }
 
     @Override

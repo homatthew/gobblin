@@ -24,8 +24,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.DefaultParser;
@@ -41,11 +39,9 @@ import org.slf4j.LoggerFactory;
 
 import com.google.api.client.repackaged.com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
-import com.google.common.collect.Lists;
 import com.google.common.eventbus.EventBus;
 import com.google.common.eventbus.Subscribe;
 import com.google.common.util.concurrent.Service;
-import com.google.common.util.concurrent.ServiceManager;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import com.typesafe.config.ConfigValueFactory;
@@ -59,11 +55,9 @@ import lombok.Getter;
 import lombok.Setter;
 
 import org.apache.gobblin.annotation.Alpha;
-import org.apache.gobblin.broker.SharedResourcesBrokerFactory;
 import org.apache.gobblin.cluster.temporal.GobblinTemporalActivityImpl;
 import org.apache.gobblin.cluster.temporal.GobblinTemporalWorkflowImpl;
 import org.apache.gobblin.cluster.temporal.Shared;
-import org.apache.gobblin.configuration.ConfigurationKeys;
 import org.apache.gobblin.configuration.State;
 import org.apache.gobblin.instrumented.StandardMetricsBridge;
 import org.apache.gobblin.metrics.GobblinMetrics;
@@ -77,7 +71,6 @@ import org.apache.gobblin.util.HadoopUtils;
 import org.apache.gobblin.util.JvmUtils;
 import org.apache.gobblin.util.TaskEventMetadataUtils;
 import org.apache.gobblin.util.event.ContainerHealthCheckFailureEvent;
-import org.apache.gobblin.util.eventbus.EventBusFactory;
 
 import static org.apache.gobblin.cluster.GobblinTemporalClusterManager.createServiceStubs;
 
@@ -92,14 +85,14 @@ import static org.apache.gobblin.cluster.GobblinTemporalClusterManager.createSer
  * </p>
  *
  * <p>
- *   This class responds to a graceful shutdown initiated by the {@link GobblinClusterManager} via
+ *   This class responds to a graceful shutdown initiated by the {@link GobblinTemporalClusterManager} via
  *   a Helix message of subtype {@link HelixMessageSubTypes#WORK_UNIT_RUNNER_SHUTDOWN}, or it does a
  *   graceful shutdown when the shutdown hook gets called. In both cases, {@link #stop()} will be
  *   called to start the graceful shutdown.
  * </p>
  *
  * <p>
- *   If for some reason, the container exits or gets killed, the {@link GobblinClusterManager} will
+ *   If for some reason, the container exits or gets killed, the {@link GobblinTemporalClusterManager} will
  *   be notified for the completion of the container and will start a new container to replace this one.
  * </p>
  *
@@ -113,23 +106,9 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
   private static final Logger logger = LoggerFactory.getLogger(GobblinTemporalTaskRunner.class);
 
   static final java.nio.file.Path CLUSTER_CONF_PATH = Paths.get("generated-gobblin-cluster.conf");
-  static final String GOBBLIN_TASK_FACTORY_NAME = "GobblinTaskFactory";
-  static final String GOBBLIN_JOB_FACTORY_NAME = "GobblinJobFactory";
-
-  private final String clusterName;
   private final Optional<ContainerMetrics> containerMetrics;
-  private final List<Service> services = Lists.newArrayList();
   private final Path appWorkPath;
-  //An EventBus instance that can be accessed from any component running within the worker process. The individual components can
-  // use the EventBus stream to communicate back application level health check results to the
-  // GobblinTaskRunner.
-  private final EventBus containerHealthEventBus;
-  private ServiceManager serviceManager;
   private boolean isTaskDriver;
-  private boolean dedicatedTaskDriverCluster;
-  private boolean isContainerExitOnHealthCheckFailureEnabled;
-
-  private Collection<StandardMetrics> metricsCollection;
   @Getter
   private volatile boolean started = false;
   private volatile boolean stopInProgress = false;
@@ -145,8 +124,6 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
   protected final FileSystem fs;
   protected final String applicationName;
   protected final String applicationId;
-  private final boolean isMetricReportingFailureFatal;
-  private final boolean isEventReportingFailureFatal;
 
   public GobblinTemporalTaskRunner(String applicationName,
       String applicationId,
@@ -165,40 +142,12 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
     this.taskRunnerId = taskRunnerId;
     this.applicationName = applicationName;
     this.applicationId = applicationId;
-    this.dedicatedTaskDriverCluster = ConfigUtils.getBoolean(config,
-        GobblinClusterConfigurationKeys.DEDICATED_TASK_DRIVER_CLUSTER_ENABLED, false);
     Configuration conf = HadoopUtils.newConfiguration();
     this.fs = GobblinClusterUtils.buildFileSystem(config, conf);
     this.appWorkPath = initAppWorkDir(config, appWorkDirOptional);
     this.clusterConfig = saveConfigToFile(config);
-    this.clusterName = this.clusterConfig.getString(GobblinClusterConfigurationKeys.HELIX_CLUSTER_NAME_KEY);
-
-    this.isMetricReportingFailureFatal = ConfigUtils.getBoolean(this.clusterConfig,
-        ConfigurationKeys.GOBBLIN_TASK_METRIC_REPORTING_FAILURE_FATAL,
-        ConfigurationKeys.DEFAULT_GOBBLIN_TASK_METRIC_REPORTING_FAILURE_FATAL);
-
-    this.isEventReportingFailureFatal = ConfigUtils.getBoolean(this.clusterConfig,
-        ConfigurationKeys.GOBBLIN_TASK_EVENT_REPORTING_FAILURE_FATAL,
-        ConfigurationKeys.DEFAULT_GOBBLIN_TASK_EVENT_REPORTING_FAILURE_FATAL);
 
     logger.info("Configured GobblinTaskRunner work dir to: {}", this.appWorkPath.toString());
-
-    this.isContainerExitOnHealthCheckFailureEnabled = ConfigUtils.getBoolean(config, GobblinClusterConfigurationKeys.CONTAINER_EXIT_ON_HEALTH_CHECK_FAILURE_ENABLED,
-        GobblinClusterConfigurationKeys.DEFAULT_CONTAINER_EXIT_ON_HEALTH_CHECK_FAILURE_ENABLED);
-
-    if (this.isContainerExitOnHealthCheckFailureEnabled) {
-      EventBus eventBus;
-      try {
-        eventBus = EventBusFactory.get(ContainerHealthCheckFailureEvent.CONTAINER_HEALTH_CHECK_EVENT_BUS_NAME,
-            SharedResourcesBrokerFactory.getImplicitBroker());
-      } catch (IOException e) {
-        logger.error("Could not find EventBus instance for container health check", e);
-        eventBus = null;
-      }
-      this.containerHealthEventBus = eventBus;
-    } else {
-      this.containerHealthEventBus = null;
-    }
 
     this.containerMetrics = buildContainerMetrics();
 
@@ -304,24 +253,9 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
       this.containerMetrics.get().stopMetricsReporting();
     }
 
-    try {
-      stopServices();
-    } finally {
-      logger.info("All services are stopped.");
-    }
+    logger.info("All services are stopped.");
 
     this.isStopped = true;
-  }
-
-  private void stopServices() {
-    if (this.serviceManager != null) {
-      try {
-        // Give the services 5 minutes to stop to ensure that we are responsive to shutdown requests
-        this.serviceManager.stopAsync().awaitStopped(5, TimeUnit.MINUTES);
-      } catch (TimeoutException te) {
-        logger.error("Timeout in stopping the service manager", te);
-      }
-    }
   }
 
   /**
@@ -366,9 +300,10 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
     }
   }
 
+  // hard coded for now
   @Override
   public Collection<StandardMetrics> getStandardMetricsCollection() {
-    return this.metricsCollection;
+    return null;
   }
 
   @Subscribe
@@ -415,7 +350,7 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
 
   public static void printUsage(Options options) {
     HelpFormatter formatter = new HelpFormatter();
-    formatter.printHelp(GobblinClusterManager.class.getSimpleName(), options);
+    formatter.printHelp(GobblinTemporalClusterManager.class.getSimpleName(), options);
   }
 
   public static void main(String[] args)
@@ -432,7 +367,6 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
 
       String applicationName =
           cmd.getOptionValue(GobblinClusterConfigurationKeys.APPLICATION_NAME_OPTION_NAME);
-      Config config = ConfigFactory.load();
       GobblinTemporalTaskRunner gobblinWorkUnitRunner =
           new GobblinTemporalTaskRunner(applicationName, getApplicationId(),
               getTaskRunnerId(), ConfigFactory.load(), Optional.<Path>absent());

@@ -31,17 +31,17 @@ import org.apache.gobblin.yarn.event.DelegationTokenUpdatedEvent;
 
 public class YarnTemporalAppMasterSecurityManager extends YarnContainerSecurityManager{
 
-  private TemporalYarnService _temporalYarnService;
-  public YarnTemporalAppMasterSecurityManager(Config config, FileSystem fs, EventBus eventBus, LogCopier logCopier, TemporalYarnService temporalYarnService) {
+  private YarnTemporalService _yarnTemporalService;
+  public YarnTemporalAppMasterSecurityManager(Config config, FileSystem fs, EventBus eventBus, LogCopier logCopier, YarnTemporalService yarnTemporalService) {
     super(config, fs, eventBus, logCopier);
-    this._temporalYarnService = temporalYarnService;
+    this._yarnTemporalService = yarnTemporalService;
   }
 
   @Override
   public void handleTokenFileUpdatedEvent(DelegationTokenUpdatedEvent delegationTokenUpdatedEvent) {
     super.handleTokenFileUpdatedEvent(delegationTokenUpdatedEvent);
     try {
-      _temporalYarnService.updateToken();
+      _yarnTemporalService.updateToken();
     } catch (IOException ioe) {
       throw Throwables.propagate(ioe);
     }
