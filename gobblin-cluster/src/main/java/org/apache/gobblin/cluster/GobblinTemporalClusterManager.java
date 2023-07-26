@@ -136,6 +136,8 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
   @Getter
   private JobConfigurationManager jobConfigurationManager;
   @Getter
+  private GobblinTemporalJobScheduler gobblinTemporalJobScheduler;
+  @Getter
   private volatile boolean started = false;
 
   protected final String clusterName;
@@ -161,7 +163,7 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
     this.fs = GobblinClusterUtils.buildFileSystem(this.config, new Configuration());
     this.appWorkDir = appWorkDirOptional.isPresent() ? appWorkDirOptional.get()
         : GobblinClusterUtils.getAppWorkDirPathFromConfig(this.config, this.fs, clusterName, applicationId);
-    LOGGER.info("Configured GobblinClusterManager work dir to: {}", this.appWorkDir);
+    LOGGER.info("Configured GobblinTemporalClusterManager work dir to: {}", this.appWorkDir);
 
     initializeAppLauncherAndServices();
   }
@@ -195,6 +197,9 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
 
     SchedulerService schedulerService = new SchedulerService(properties);
     this.applicationLauncher.addService(schedulerService);
+    this.gobblinTemporalJobScheduler = buildGobblinTemporalJobScheduler(config, this.appWorkDir, getMetadataTags(clusterName, applicationId),
+        schedulerService);
+    this.applicationLauncher.addService(this.gobblinTemporalJobScheduler);
     this.jobConfigurationManager = buildJobConfigurationManager(config);
     this.applicationLauncher.addService(this.jobConfigurationManager);
 
@@ -234,7 +239,7 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
 
 
   /**
-   * Start the Gobblin Cluster Manager.
+   * Start the Gobblin Temporal Cluster Manager.
    */
   // @Import(clazz = ClientSslContextFactory.class, prefix = ClientSslContextFactory.SCOPE_PREFIX)
   @Override
@@ -263,18 +268,12 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
       this.idleProcessThread.start();
 
       // Need this in case a kill is issued to the process so that the idle thread does not keep the process up
-      // since GobblinClusterManager.stop() is not called this case.
+      // since GobblinTemporalClusterManager.stop() is not called this case.
       Runtime.getRuntime().addShutdownHook(new Thread(() -> GobblinTemporalClusterManager.this.stopIdleProcessThread = true));
     } else {
       startAppLauncherAndServices();
     }
     this.started = true;
-
-    try {
-      initiateWorkflow();
-    }catch (Exception e) {
-      throw new RuntimeException(e);
-    }
   }
 
   public void initiateWorkflow()
@@ -351,7 +350,6 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
     // Set trust manager from trust store
     KeyStore trustStore = KeyStore.getInstance("JKS");
     File trustStoreFile = new File(config.getString(SSL_TRUSTSTORE_LOCATION));
-    LOGGER.info("SSL_TRUSTSTORE_LOCATION " + config.getString(SSL_TRUSTSTORE_LOCATION));
 
     String trustStorePassword = config.getString(SSL_TRUSTSTORE_PASSWORD);
     trustStore.load(toInputStream(trustStoreFile), trustStorePassword.toCharArray());
@@ -364,8 +362,6 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
         .protocols(SSL_CONFIG_DEFAULT_SSL_PROTOCOLS)
         .ciphers(SSL_CONFIG_DEFAULT_CIPHER_SUITES)
         .build();
-
-    LOGGER.info("SSLContext: " + sslContext);
 
     return WorkflowServiceStubs.newServiceStubs(
         WorkflowServiceStubsOptions.newBuilder()
@@ -400,9 +396,16 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
 
   }
 
-  /**
-   * Get additional {@link Tag}s required for any type of reporting.
-   */
+  private GobblinTemporalJobScheduler buildGobblinTemporalJobScheduler(Config sysConfig, Path appWorkDir,
+      List<? extends Tag<?>> metadataTags, SchedulerService schedulerService) throws Exception {
+    return new GobblinTemporalJobScheduler(sysConfig,
+        this.eventBus,
+        appWorkDir,
+        metadataTags,
+        schedulerService,
+        this.jobCatalog);
+  }
+
   private List<? extends Tag<?>> getMetadataTags(String applicationName, String applicationId) {
     return Tag.fromMap(
         new ImmutableMap.Builder<String, Object>().put(GobblinClusterMetricTagNames.APPLICATION_NAME, applicationName)
@@ -496,10 +499,10 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
             ConfigValueFactory.fromAnyRef(true));
       }
 
-      try (GobblinTemporalClusterManager gobblinClusterManager = new GobblinTemporalClusterManager(
+      try (GobblinTemporalClusterManager GobblinTemporalClusterManager = new GobblinTemporalClusterManager(
           cmd.getOptionValue(GobblinClusterConfigurationKeys.APPLICATION_NAME_OPTION_NAME), getApplicationId(),
           config, Optional.<Path>absent())) {
-        gobblinClusterManager.start();
+        GobblinTemporalClusterManager.start();
       }
     } catch (ParseException pe) {
       printUsage(options);

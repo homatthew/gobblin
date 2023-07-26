@@ -18,6 +18,8 @@
 package org.apache.gobblin.cluster;
 
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -65,12 +67,14 @@ import org.apache.gobblin.metrics.RootMetricContext;
 import org.apache.gobblin.metrics.event.EventSubmitter;
 import org.apache.gobblin.metrics.event.GobblinEventBuilder;
 import org.apache.gobblin.runtime.api.TaskEventMetadataGenerator;
+import org.apache.gobblin.util.ClassAliasResolver;
 import org.apache.gobblin.util.ConfigUtils;
 import org.apache.gobblin.util.FileUtils;
 import org.apache.gobblin.util.HadoopUtils;
 import org.apache.gobblin.util.JvmUtils;
 import org.apache.gobblin.util.TaskEventMetadataUtils;
 import org.apache.gobblin.util.event.ContainerHealthCheckFailureEvent;
+import org.apache.gobblin.util.reflection.GobblinConstructorUtils;
 
 import static org.apache.gobblin.cluster.GobblinTemporalClusterManager.createServiceStubs;
 
@@ -106,6 +110,8 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
   private static final Logger logger = LoggerFactory.getLogger(GobblinTemporalTaskRunner.class);
 
   static final java.nio.file.Path CLUSTER_CONF_PATH = Paths.get("generated-gobblin-cluster.conf");
+
+  private static TaskRunnerSuiteBase.Builder builder;
   private final Optional<ContainerMetrics> containerMetrics;
   private final Path appWorkPath;
   private boolean isTaskDriver;
@@ -150,6 +156,7 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
     logger.info("Configured GobblinTaskRunner work dir to: {}", this.appWorkPath.toString());
 
     this.containerMetrics = buildContainerMetrics();
+    this.builder = initBuilder();
 
     logger.info("GobblinTaskRunner({}): applicationName {}, applicationId {}, taskRunnerId {}, config {}, appWorkDir {}",
         this.isTaskDriver ? "taskDriver" : "worker",
@@ -158,6 +165,35 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
         taskRunnerId,
         config,
         appWorkDirOptional);
+  }
+
+  public static TaskRunnerSuiteBase.Builder getBuilder() {
+    return builder;
+  }
+
+  private TaskRunnerSuiteBase.Builder initBuilder() throws ReflectiveOperationException {
+    String builderStr = ConfigUtils.getString(this.clusterConfig,
+        GobblinClusterConfigurationKeys.TASK_RUNNER_SUITE_BUILDER,
+        TaskRunnerSuiteBase.Builder.class.getName());
+
+    String hostName = "";
+    try {
+      hostName = InetAddress.getLocalHost().getHostName();
+    } catch (UnknownHostException e) {
+      logger.warn("Cannot find host name for Helix instance: {}");
+    }
+
+    TaskRunnerSuiteBase.Builder builder = GobblinConstructorUtils.<TaskRunnerSuiteBase.Builder>invokeLongestConstructor(
+        new ClassAliasResolver(TaskRunnerSuiteBase.Builder.class)
+            .resolveClass(builderStr), this.clusterConfig);
+
+    return builder.setAppWorkPath(this.appWorkPath)
+        .setContainerMetrics(this.containerMetrics)
+        .setFileSystem(this.fs)
+        .setApplicationId(applicationId)
+        .setApplicationName(applicationName)
+        .setContainerId(taskRunnerId)
+        .setHostName(hostName);
   }
 
   private Path initAppWorkDir(Config config, Optional<Path> appWorkDirOptional) {

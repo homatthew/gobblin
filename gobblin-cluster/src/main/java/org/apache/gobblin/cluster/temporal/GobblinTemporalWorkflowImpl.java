@@ -19,6 +19,7 @@
 package org.apache.gobblin.cluster.temporal;
 
 import java.time.Duration;
+import java.util.Properties;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,6 +27,7 @@ import org.slf4j.LoggerFactory;
 import io.temporal.activity.ActivityOptions;
 import io.temporal.common.RetryOptions;
 import io.temporal.workflow.Workflow;
+
 
 public class GobblinTemporalWorkflowImpl implements GobblinTemporalWorkflow {
 
@@ -36,14 +38,12 @@ public class GobblinTemporalWorkflowImpl implements GobblinTemporalWorkflow {
      */
 
     private final RetryOptions retryoptions = RetryOptions.newBuilder()
-        .setInitialInterval(Duration.ofSeconds(1))
-        .setMaximumInterval(Duration.ofSeconds(100))
-        .setBackoffCoefficient(2)
-        .setMaximumAttempts(500)
+        .setMaximumAttempts(1)
         .build();
 
+    int yearPeriod = 365 * 24 * 60 * 60;
     private final ActivityOptions options = ActivityOptions.newBuilder()
-            .setStartToCloseTimeout(Duration.ofSeconds(60))
+            .setStartToCloseTimeout(Duration.ofSeconds(yearPeriod))
             .setRetryOptions(retryoptions)
             .build();
 
@@ -67,6 +67,12 @@ public class GobblinTemporalWorkflowImpl implements GobblinTemporalWorkflow {
          */
         LOGGER.info("Workflow triggered");
         return activity.composeGreeting(name);
+    }
+
+    @Override
+    public void runTask(Properties jobProps, String appWorkDir, String jobId, String workUnitFilePath, String jobStateFilePath)
+        throws Exception{
+        activity.run(jobProps, appWorkDir, jobId, workUnitFilePath, jobStateFilePath);
     }
 }
 // @@@SNIPEND

@@ -77,7 +77,7 @@ public class SingleTask {
   private Condition _taskAttemptBuilt;
   private Lock _lock;
 
-  SingleTask(String jobId, Path workUnitFilePath, Path jobStateFilePath, FileSystem fs,
+  public SingleTask(String jobId, Path workUnitFilePath, Path jobStateFilePath, FileSystem fs,
       TaskAttemptBuilder taskAttemptBuilder, StateStores stateStores, Config dynamicConfig) {
     this(jobId, workUnitFilePath, jobStateFilePath, fs, taskAttemptBuilder, stateStores, dynamicConfig, false);
   }
@@ -86,8 +86,9 @@ public class SingleTask {
    * Do all heavy-lifting of initialization in constructor which could be retried if failed,
    * see the example in {@link GobblinHelixTask}.
    */
-  SingleTask(String jobId, Path workUnitFilePath, Path jobStateFilePath, FileSystem fs,
+  public SingleTask(String jobId, Path workUnitFilePath, Path jobStateFilePath, FileSystem fs,
       TaskAttemptBuilder taskAttemptBuilder, StateStores stateStores, Config dynamicConfig, boolean skipGetJobState) {
+    _logger.info("Constructing SingleTask");
     _jobId = jobId;
     _workUnitFilePath = workUnitFilePath;
     _jobStateFilePath = jobStateFilePath;
@@ -111,6 +112,7 @@ public class SingleTask {
 
   public void run()
       throws IOException, InterruptedException {
+    _logger.info("Running SingleTask");
 
     if (_jobState == null) {
       throw new RuntimeException("jobState is null. Task may have already been cancelled.");
