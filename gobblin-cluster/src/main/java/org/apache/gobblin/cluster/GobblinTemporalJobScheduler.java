@@ -23,7 +23,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.Lock;
 
 import org.apache.hadoop.fs.Path;
 import org.slf4j.Logger;
@@ -33,7 +32,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.eventbus.EventBus;
 import com.google.common.eventbus.Subscribe;
-import com.google.common.util.concurrent.Striped;
 import com.typesafe.config.Config;
 
 import org.apache.gobblin.annotation.Alpha;
@@ -91,11 +89,7 @@ public class GobblinTemporalJobScheduler extends JobScheduler implements Standar
   final GobblinHelixJobLauncherMetrics launcherMetrics;
   final GobblinHelixPlanningJobLauncherMetrics planningJobLauncherMetrics;
   final HelixJobsMapping jobsMapping;
-  final Striped<Lock> locks = Striped.lazyWeakLock(256);
-  private final long helixWorkflowListingTimeoutMillis;
-
   private boolean startServicesCompleted;
-  private final long helixJobStopTimeoutMillis;
 
   public GobblinTemporalJobScheduler(Config sysConfig,
                                   EventBus eventBus,
@@ -137,13 +131,6 @@ public class GobblinTemporalJobScheduler extends JobScheduler implements Standar
                                                   metricsWindowSizeInMin);
 
     this.startServicesCompleted = false;
-
-    this.helixJobStopTimeoutMillis = ConfigUtils.getLong(sysConfig, GobblinClusterConfigurationKeys.HELIX_JOB_STOP_TIMEOUT_SECONDS,
-        GobblinClusterConfigurationKeys.DEFAULT_HELIX_JOB_STOP_TIMEOUT_SECONDS) * 1000;
-
-    this.helixWorkflowListingTimeoutMillis = ConfigUtils.getLong(sysConfig, GobblinClusterConfigurationKeys.HELIX_WORKFLOW_LISTING_TIMEOUT_SECONDS,
-        GobblinClusterConfigurationKeys.DEFAULT_HELIX_WORKFLOW_LISTING_TIMEOUT_SECONDS) * 1000;
-
   }
 
   @Override

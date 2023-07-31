@@ -54,12 +54,13 @@ public class GobblinTemporalActivityImpl implements GobblinTemporalActivity {
         return "Hello " + name + "!";
     }
 
-    private void createTaskAttemptBuilder() {
+    private TaskAttemptBuilder createTaskAttemptBuilder() {
         Properties properties = ConfigUtils.configToProperties(builder.getConfig());
         TaskStateTracker taskStateTracker = new GobblinHelixTaskStateTracker(properties);
         TaskExecutor taskExecutor = new TaskExecutor(ConfigUtils.configToProperties(builder.getConfig()));
-        this.taskAttemptBuilder = new TaskAttemptBuilder(taskStateTracker, taskExecutor);
-        this.taskAttemptBuilder.setTaskStateStore(this.stateStores.getTaskStateStore());
+        TaskAttemptBuilder taskAttemptBuilder = new TaskAttemptBuilder(taskStateTracker, taskExecutor);
+        taskAttemptBuilder.setTaskStateStore(this.stateStores.getTaskStateStore());
+        return taskAttemptBuilder;
     }
 
     @Override
@@ -78,7 +79,7 @@ public class GobblinTemporalActivityImpl implements GobblinTemporalActivity {
                 appWorkDir, GobblinClusterConfigurationKeys.INPUT_WORK_UNIT_DIR_NAME, appWorkDir,
                 GobblinClusterConfigurationKeys.JOB_STATE_DIR_NAME);
 
-        createTaskAttemptBuilder();
+        this.taskAttemptBuilder = createTaskAttemptBuilder();
 
         // Dynamic config is considered as part of JobState in SingleTask
         // Important to distinguish between dynamicConfig and Config
