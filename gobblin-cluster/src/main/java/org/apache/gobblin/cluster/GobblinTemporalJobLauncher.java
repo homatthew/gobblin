@@ -110,6 +110,9 @@ public class GobblinTemporalJobLauncher extends AbstractJobLauncher {
   @Getter
   private final StateStores stateStores;
 
+  private WorkflowServiceStubs workflowServiceStubs;
+  private WorkflowClient client;
+
   public GobblinTemporalJobLauncher(Properties jobProps, Path appWorkDir,
       List<? extends Tag<?>> metadataTags, ConcurrentHashMap<String, Boolean> runningMap,
       Optional<GobblinHelixMetrics> helixMetrics) throws Exception {
@@ -144,6 +147,13 @@ public class GobblinTemporalJobLauncher extends AbstractJobLauncher {
         new TaskStateCollectorService(jobProps, this.jobContext.getJobState(), this.eventBus, this.eventSubmitter,
             this.stateStores.getTaskStateStore(), this.outputTaskStateDir, this.getIssueRepository());
 
+    this.workflowServiceStubs = createServiceStubs();
+    this.client = WorkflowClient.newInstance(
+            workflowServiceStubs, WorkflowClientOptions.newBuilder().setNamespace("gobblin-fastingest-internpoc").build());
+
+    /*
+     * Set Workflow options such as WorkflowId and Task Queue so the worker knows where to list and which workflows to execute.
+     */
     startCancellationExecutor();
   }
 
@@ -215,7 +225,6 @@ public class GobblinTemporalJobLauncher extends AbstractJobLauncher {
    * Submit a job to run.
    */
   private void submitJobToTemporal(List<WorkUnit> workUnits) throws Exception{
-
     try (ParallelRunner stateSerDeRunner = new ParallelRunner(this.stateSerDeRunnerThreads, this.fs)) {
       Path jobStateFilePath;
 
@@ -239,36 +248,19 @@ public class GobblinTemporalJobLauncher extends AbstractJobLauncher {
       String workUnitFilePathStr;
       String jobStateFilePathStr = jobStateFilePath.toString();
 
-      GobblinTemporalWorkflow workflow = createTemporalWorkflow();
-
       int multiTaskIdSequence = 0;
       for (WorkUnit workUnit : workUnits) {
         if (workUnit instanceof MultiWorkUnit) {
           workUnit.setId(JobLauncherUtils.newMultiTaskId(this.jobContext.getJobId(), multiTaskIdSequence++));
         }
         workUnitFilePathStr = persistWorkUnit(new Path(this.inputWorkUnitDir, this.jobContext.getJobId()), workUnit, stateSerDeRunner);
+        WorkflowOptions options = WorkflowOptions.newBuilder()
+            .setTaskQueue(Shared.GOBBLIN_TEMPORAL_TASK_QUEUE)
+            .build();
+        GobblinTemporalWorkflow workflow = this.client.newWorkflowStub(GobblinTemporalWorkflow.class, options);
         workflow.runTask(jobProps, appWorkDir.toString(), getJobId(), workUnitFilePathStr, jobStateFilePathStr);
       }
     }
-  }
-
-  private GobblinTemporalWorkflow createTemporalWorkflow()
-      throws Exception {
-    LOGGER.info("Initiating Temporal Workflow");
-    WorkflowServiceStubs workflowServiceStubs = createServiceStubs();
-    WorkflowClient client =
-        WorkflowClient.newInstance(
-            workflowServiceStubs, WorkflowClientOptions.newBuilder().setNamespace("gobblin-fastingest-internpoc").build());
-
-    /*
-     * Set Workflow options such as WorkflowId and Task Queue so the worker knows where to list and which workflows to execute.
-     */
-    WorkflowOptions options = WorkflowOptions.newBuilder()
-        .setTaskQueue(Shared.HELLO_WORLD_TASK_QUEUE)
-        .build();
-
-    // Create the workflow client stub. It is used to start our workflow execution.
-     return client.newWorkflowStub(GobblinTemporalWorkflow.class, options);
   }
 
   public void launchJob(@Nullable JobListener jobListener) throws JobException {

@@ -18,6 +18,7 @@
 package org.apache.gobblin.cluster;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
@@ -39,6 +40,9 @@ import org.apache.gobblin.broker.SharedResourcesBrokerFactory;
 import org.apache.gobblin.broker.gobblin_scopes.GobblinScopeTypes;
 import org.apache.gobblin.broker.gobblin_scopes.JobScopeInstance;
 import org.apache.gobblin.broker.iface.SharedResourcesBroker;
+import org.apache.gobblin.metrics.MetricContext;
+import org.apache.gobblin.metrics.event.EventSubmitter;
+import org.apache.gobblin.metrics.event.GobblinEventBuilder;
 import org.apache.gobblin.runtime.AbstractJobLauncher;
 import org.apache.gobblin.runtime.GobblinMultiTaskAttempt;
 import org.apache.gobblin.runtime.JobState;
@@ -118,6 +122,10 @@ public class SingleTask {
       throw new RuntimeException("jobState is null. Task may have already been cancelled.");
     }
 
+    MetricContext metricContext = MetricContext.builder("SingleTaskContext").build();
+    EventSubmitter eventSubmitter = new EventSubmitter.Builder(metricContext, "gobblin.SingleTask").build();
+    String eventTime = Instant.now().toString();
+
     // Add dynamic configuration to the job state
     _dynamicConfig.entrySet().forEach(e -> _jobState.setProp(e.getKey(), e.getValue().unwrapped().toString()));
 
@@ -137,15 +145,26 @@ public class SingleTask {
       _lock.lock();
       try {
         _taskAttemptBuilt.signal();
+        GobblinEventBuilder eventBuilder = new GobblinEventBuilder("TaskAttemptBuiltSignal");
+        eventBuilder.addMetadata("signalEventTime", Instant.now().toString());
+        eventSubmitter.submit(eventBuilder);
       } finally {
         _lock.unlock();
       }
 
       // This is a blocking call.
+      GobblinEventBuilder eventBuilder = new GobblinEventBuilder("TaskAttemptRunAndOptionallyCommit");
+      eventBuilder.addMetadata("eventTime", Instant.now().toString());
+      eventSubmitter.submit(eventBuilder);
+
       _taskAttempt.runAndOptionallyCommitTaskAttempt(GobblinMultiTaskAttempt.CommitPolicy.IMMEDIATE);
 
     } finally {
       _logger.info("Clearing all metrics object in cache.");
+
+      GobblinEventBuilder eventBuilder = new GobblinEventBuilder("TaskAttemptCleanMetrics");
+      eventBuilder.addMetadata("eventTime", Instant.now().toString());
+      eventSubmitter.submit(eventBuilder);
       _taskAttempt.cleanMetrics();
     }
   }

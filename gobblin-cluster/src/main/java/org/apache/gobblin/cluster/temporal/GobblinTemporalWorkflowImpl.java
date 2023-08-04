@@ -19,14 +19,34 @@
 package org.apache.gobblin.cluster.temporal;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.FormatStyle;
 import java.util.Properties;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.protobuf.Timestamp;
+
 import io.temporal.activity.ActivityOptions;
+import io.temporal.api.common.v1.WorkflowExecution;
+import io.temporal.api.history.v1.HistoryEvent;
+import io.temporal.api.workflowservice.v1.GetWorkflowExecutionHistoryRequest;
+import io.temporal.api.workflowservice.v1.GetWorkflowExecutionHistoryResponse;
 import io.temporal.common.RetryOptions;
+import io.temporal.serviceclient.WorkflowServiceStubs;
 import io.temporal.workflow.Workflow;
+
+import org.apache.gobblin.metrics.MetricContext;
+import org.apache.gobblin.metrics.event.EventSubmitter;
+import org.apache.gobblin.metrics.event.GobblinEventBuilder;
+
+import static org.apache.gobblin.cluster.GobblinTemporalClusterManager.createServiceStubs;
 
 
 public class GobblinTemporalWorkflowImpl implements GobblinTemporalWorkflow {
@@ -60,7 +80,6 @@ public class GobblinTemporalWorkflowImpl implements GobblinTemporalWorkflow {
     // This is the entry point to the Workflow.
     @Override
     public String getGreeting(String name) {
-
         /**
          * If there were other Activity methods they would be orchestrated here or from within other Activities.
          * This is a blocking call that returns only after the activity has completed.
@@ -72,7 +91,55 @@ public class GobblinTemporalWorkflowImpl implements GobblinTemporalWorkflow {
     @Override
     public void runTask(Properties jobProps, String appWorkDir, String jobId, String workUnitFilePath, String jobStateFilePath)
         throws Exception{
+        String workflowId = Workflow.getInfo().getWorkflowId();
+        String runId = Workflow.getInfo().getRunId();
+        WorkflowExecution execution = WorkflowExecution.newBuilder()
+            .setWorkflowId(workflowId)
+            .setRunId(runId)
+            .build();
+
+        ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
+
+        MetricContext metricContext = MetricContext.builder("TemporalWorkflowContext").build();
+        EventSubmitter eventSubmitter = new EventSubmitter.Builder(metricContext, getClass().getPackage().getName()).build();
+
+        final long[] lastLoggedEventId = {0};
+        executorService.scheduleAtFixedRate(() -> {
+            try {
+                GetWorkflowExecutionHistoryRequest request =
+                    GetWorkflowExecutionHistoryRequest.newBuilder().setNamespace("gobblin-fastingest-internpoc").setExecution(execution).build();
+
+                WorkflowServiceStubs workflowServiceStubs = createServiceStubs();
+                GetWorkflowExecutionHistoryResponse response =
+                    workflowServiceStubs.blockingStub().getWorkflowExecutionHistory(request);
+
+                for (HistoryEvent event : response.getHistory().getEventsList()) {
+                    // Only log events that are newer than the last one we logged
+                    if (event.getEventId() > lastLoggedEventId[0]) {
+                        Timestamp timestamp = event.getEventTime();
+                        Instant instant = Instant.ofEpochSecond(timestamp.getSeconds(), timestamp.getNanos());
+                        DateTimeFormatter formatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM)
+                            .withZone(ZoneId.systemDefault());
+                        String formattedDateTime = formatter.format(instant);
+
+                        GobblinEventBuilder eventBuilder = new GobblinEventBuilder("TemporalEvent");
+                        eventBuilder.addMetadata(event.getEventType().name(), formattedDateTime);
+                        eventSubmitter.submit(eventBuilder);
+
+                        LOGGER.info("Temporal HistoryEvent: {}", event.getEventType().name());
+                        LOGGER.info("Temporal HistoryEvent Time: {}", formattedDateTime);
+
+                        lastLoggedEventId[0] = event.getEventId();
+                    }
+                }
+            } catch (Exception e) {
+                LOGGER.error("Error retrieving workflow history", e);
+            }
+        }, 0, 10, TimeUnit.SECONDS);
+
         activity.run(jobProps, appWorkDir, jobId, workUnitFilePath, jobStateFilePath);
+
+        executorService.shutdown();
     }
 }
 // @@@SNIPEND

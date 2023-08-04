@@ -246,7 +246,7 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
      * Define the workflow worker. Workflow workers listen to a defined task queue and process
      * workflows and activities.
      */
-    Worker worker = factory.newWorker(Shared.HELLO_WORLD_TASK_QUEUE);
+    Worker worker = factory.newWorker(Shared.GOBBLIN_TEMPORAL_TASK_QUEUE);
 
     /*
      * Register our workflow implementation with the worker.

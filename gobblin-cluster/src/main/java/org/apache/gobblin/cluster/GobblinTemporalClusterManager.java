@@ -52,10 +52,6 @@ import com.typesafe.config.ConfigValueFactory;
 
 import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
 import io.grpc.netty.shaded.io.netty.handler.ssl.SslContext;
-import io.temporal.client.WorkflowClient;
-import io.temporal.client.WorkflowClientOptions;
-import io.temporal.client.WorkflowOptions;
-import io.temporal.client.WorkflowStub;
 import io.temporal.serviceclient.WorkflowServiceStubs;
 import io.temporal.serviceclient.WorkflowServiceStubsOptions;
 import javax.net.ssl.KeyManagerFactory;
@@ -67,8 +63,6 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.apache.gobblin.annotation.Alpha;
 import org.apache.gobblin.cluster.event.ClusterManagerShutdownRequest;
-import org.apache.gobblin.cluster.temporal.GobblinTemporalWorkflow;
-import org.apache.gobblin.cluster.temporal.Shared;
 import org.apache.gobblin.configuration.ConfigurationKeys;
 import org.apache.gobblin.instrumented.StandardMetricsBridge;
 import org.apache.gobblin.metrics.Tag;
@@ -274,37 +268,6 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
       startAppLauncherAndServices();
     }
     this.started = true;
-  }
-
-  public void initiateWorkflow()
-      throws Exception {
-    LOGGER.info("Initiating Temporal Workflow");
-    WorkflowServiceStubs workflowServiceStubs = createServiceStubs();
-    WorkflowClient client =
-        WorkflowClient.newInstance(
-            workflowServiceStubs, WorkflowClientOptions.newBuilder().setNamespace("gobblin-fastingest-internpoc").build());
-
-    /*
-     * Set Workflow options such as WorkflowId and Task Queue so the worker knows where to list and which workflows to execute.
-     */
-    WorkflowOptions options = WorkflowOptions.newBuilder()
-        .setTaskQueue(Shared.HELLO_WORLD_TASK_QUEUE)
-        .build();
-
-    // Create the workflow client stub. It is used to start our workflow execution.
-    GobblinTemporalWorkflow workflow = client.newWorkflowStub(GobblinTemporalWorkflow.class, options);
-
-    /*
-     * Execute our workflow and wait for it to complete. The call to our getGreeting method is
-     * synchronous.
-     *
-     * Replace the parameter "World" in the call to getGreeting() with your name.
-     */
-    String greeting = workflow.getGreeting("World");
-
-    String workflowId = WorkflowStub.fromTyped(workflow).getExecution().getWorkflowId();
-    // Display workflow execution results
-    LOGGER.info(workflowId + " " + greeting);
   }
 
   public static WorkflowServiceStubs createServiceStubs()
