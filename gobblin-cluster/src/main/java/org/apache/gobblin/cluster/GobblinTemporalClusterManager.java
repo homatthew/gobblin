@@ -80,21 +80,6 @@ import static org.apache.gobblin.security.ssl.SSLContextFactory.toInputStream;
 
 /**
  * The central cluster manager for Gobblin Clusters.
- *
- *
- * <p>
- *   This class will initiates a graceful shutdown of the cluster in the following conditions:
- *
- *   <ul>
- *     <li>A shutdown request is received via a Helix message of subtype
- *     {@link HelixMessageSubTypes#APPLICATION_MASTER_SHUTDOWN}. Upon receiving such a message,
- *     it will call {@link #stop()} to initiate a graceful shutdown of the cluster</li>
- *     <li>The shutdown hook gets called. The shutdown hook will call {@link #stop()}, which will
- *     start a graceful shutdown of the cluster.</li>
- *   </ul>
- * </p>
- *
- * @author Yinan Li
  */
 @Alpha
 @Slf4j
@@ -140,9 +125,8 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
 
   public GobblinTemporalClusterManager(String clusterName, String applicationId, Config sysConfig,
       Optional<Path> appWorkDirOptional) throws Exception {
-    // Set system properties passed in via application config. As an example, Helix uses System#getProperty() for ZK configuration
+    // Set system properties passed in via application config.
     // overrides such as sessionTimeout. In this case, the overrides specified
-    // in the application configuration have to be extracted and set before initializing HelixManager.
     GobblinClusterUtils.setSystemProperties(sysConfig);
 
     //Add dynamic config
@@ -334,6 +318,7 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
             .build());
 
   }
+
   /**
    * Stop the Gobblin Cluster Manager.
    */
@@ -365,8 +350,7 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
         this.eventBus,
         appWorkDir,
         metadataTags,
-        schedulerService,
-        this.jobCatalog);
+        schedulerService);
   }
 
   private List<? extends Tag<?>> getMetadataTags(String applicationName, String applicationId) {
@@ -414,8 +398,7 @@ public class GobblinTemporalClusterManager implements ApplicationLauncher, Stand
 
   /**
    * TODO for now the cluster id is hardcoded to 1 both here and in the {@link GobblinTaskRunner}. In the future, the
-   * cluster id should be created by the {@link GobblinTemporalClusterManager} and passed to each {@link GobblinTaskRunner} via
-   * Helix (at least that would be the easiest approach, there are certainly others ways to do it).
+   * cluster id should be created by the {@link GobblinTemporalClusterManager} and passed to each {@link GobblinTaskRunner}
    */
   private static String getApplicationId() {
     return "1";

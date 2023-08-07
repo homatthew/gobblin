@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-// @@@SNIPSTART hello-world-project-template-java-workflow-interface
 package org.apache.gobblin.cluster.temporal;
 
 import java.util.Properties;
@@ -39,4 +38,3 @@ public interface GobblinTemporalWorkflow {
     void runTask(Properties jobProps, String appWorkDir, String jobId, String workUnitFilePath, String jobStateFilePath)
         throws Exception;
 }
-// @@@SNIPEND

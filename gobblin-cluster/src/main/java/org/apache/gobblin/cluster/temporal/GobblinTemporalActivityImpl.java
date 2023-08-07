@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-// @@@SNIPSTART hello-world-project-template-java-activity
 package org.apache.gobblin.cluster.temporal;
 
 import java.net.URI;

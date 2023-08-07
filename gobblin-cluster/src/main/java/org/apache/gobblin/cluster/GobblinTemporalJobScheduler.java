@@ -46,7 +46,6 @@ import org.apache.gobblin.metrics.MetricContext;
 import org.apache.gobblin.metrics.Tag;
 import org.apache.gobblin.runtime.JobException;
 import org.apache.gobblin.runtime.JobLauncher;
-import org.apache.gobblin.runtime.api.MutableJobCatalog;
 import org.apache.gobblin.runtime.listeners.JobListener;
 import org.apache.gobblin.scheduler.JobScheduler;
 import org.apache.gobblin.scheduler.SchedulerService;
@@ -57,18 +56,11 @@ import org.apache.gobblin.util.PropertiesUtils;
 
 /**
  * An extension to {@link JobScheduler} that schedules and runs
- * Gobblin jobs on Helix.
- *
- * <p> The actual job running logic is handled by
- * {@link HelixRetriggeringJobCallable}. This callable will first
- * determine if this job should be launched from the same node
- * where the scheduler is running, or from a remote node.
+ * Gobblin jobs on Temporal.
  *
  * <p> If the job should be launched from the scheduler node,
- * {@link GobblinHelixJobLauncher} is invoked. Else the
- * {@link GobblinHelixDistributeJobExecutionLauncher} is invoked.
+ * {@link GobblinTemporalJobLauncher} is invoked.
  *
- * <p> More details can be found at {@link HelixRetriggeringJobCallable}.
  */
 @Alpha
 public class GobblinTemporalJobScheduler extends JobScheduler implements StandardMetricsBridge {
@@ -81,10 +73,7 @@ public class GobblinTemporalJobScheduler extends JobScheduler implements Standar
   private final Path appWorkDir;
   private final List<? extends Tag<?>> metadataTags;
   private final ConcurrentHashMap<String, Boolean> jobRunningMap;
-  private final MutableJobCatalog jobCatalog;
   private final MetricContext metricContext;
-
-  final GobblinHelixMetrics helixMetrics;
   final GobblinHelixJobSchedulerMetrics jobSchedulerMetrics;
   final GobblinHelixJobLauncherMetrics launcherMetrics;
   final GobblinHelixPlanningJobLauncherMetrics planningJobLauncherMetrics;
@@ -94,8 +83,7 @@ public class GobblinTemporalJobScheduler extends JobScheduler implements Standar
   public GobblinTemporalJobScheduler(Config sysConfig,
                                   EventBus eventBus,
                                   Path appWorkDir, List<? extends Tag<?>> metadataTags,
-                                  SchedulerService schedulerService,
-                                  MutableJobCatalog jobCatalog) throws Exception {
+                                  SchedulerService schedulerService) throws Exception {
 
     super(ConfigUtils.configToProperties(sysConfig), schedulerService);
     this.commonJobProperties = ConfigUtils.configToProperties(ConfigUtils.getConfigOrEmpty(sysConfig, COMMON_JOB_PROPS));
@@ -103,7 +91,6 @@ public class GobblinTemporalJobScheduler extends JobScheduler implements Standar
     this.jobRunningMap = new ConcurrentHashMap<>();
     this.appWorkDir = appWorkDir;
     this.metadataTags = metadataTags;
-    this.jobCatalog = jobCatalog;
     this.metricContext = Instrumented.getMetricContext(new org.apache.gobblin.configuration.State(properties), this.getClass());
 
     int metricsWindowSizeInMin = ConfigUtils.getInt(sysConfig,
@@ -126,10 +113,6 @@ public class GobblinTemporalJobScheduler extends JobScheduler implements Standar
                                                                           this.metricContext,
                                                                           metricsWindowSizeInMin, this.jobsMapping);
 
-    this.helixMetrics = new GobblinHelixMetrics("helixMetricsInJobScheduler",
-                                                  this.metricContext,
-                                                  metricsWindowSizeInMin);
-
     this.startServicesCompleted = false;
   }
 
@@ -137,8 +120,7 @@ public class GobblinTemporalJobScheduler extends JobScheduler implements Standar
   public Collection<StandardMetrics> getStandardMetricsCollection() {
     return ImmutableList.of(this.launcherMetrics,
                             this.jobSchedulerMetrics,
-                            this.planningJobLauncherMetrics,
-                            this.helixMetrics);
+                            this.planningJobLauncherMetrics);
   }
 
   @Override
@@ -196,8 +178,7 @@ public class GobblinTemporalJobScheduler extends JobScheduler implements Standar
     return new GobblinTemporalJobLauncher(combinedProps,
         this.appWorkDir,
         this.metadataTags,
-        this.jobRunningMap,
-        Optional.of(this.helixMetrics));
+        this.jobRunningMap);
   }
 
   @Subscribe
@@ -221,7 +202,6 @@ public class GobblinTemporalJobScheduler extends JobScheduler implements Standar
       } else {
         LOGGER.info("No job schedule found, so running job " + jobUri);
         GobblinHelixJobLauncherListener listener = new GobblinHelixJobLauncherListener(this.launcherMetrics);
-        // this.jobExecutor.execute(new NonScheduledJobRunner(jobProps, listener));
         JobLauncher launcher = buildJobLauncher(newJobArrival.getJobConfig());
         launcher.launchJob(listener);
       }

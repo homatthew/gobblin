@@ -20,11 +20,9 @@ package org.apache.gobblin.cluster;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
-import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -32,8 +30,8 @@ import org.apache.hadoop.fs.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.github.rholder.retry.RetryException;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Lists;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigValueFactory;
 
@@ -62,11 +60,14 @@ import org.apache.gobblin.runtime.JobState;
 import org.apache.gobblin.runtime.TaskStateCollectorService;
 import org.apache.gobblin.runtime.listeners.JobListener;
 import org.apache.gobblin.runtime.util.StateStores;
+import org.apache.gobblin.source.extractor.extract.kafka.KafkaSource;
 import org.apache.gobblin.source.workunit.MultiWorkUnit;
 import org.apache.gobblin.source.workunit.WorkUnit;
 import org.apache.gobblin.util.ConfigUtils;
+import org.apache.gobblin.util.Id;
 import org.apache.gobblin.util.JobLauncherUtils;
 import org.apache.gobblin.util.ParallelRunner;
+import org.apache.gobblin.util.PropertiesUtils;
 import org.apache.gobblin.util.SerializationUtils;
 
 import static org.apache.gobblin.cluster.GobblinTemporalClusterManager.createServiceStubs;
@@ -78,7 +79,7 @@ import static org.apache.gobblin.cluster.GobblinTemporalClusterManager.createSer
  * <p>
  *   Each {@link WorkUnit} of the job is persisted to the {@link FileSystem} of choice and the path to the file
  *   storing the serialized {@link WorkUnit} is passed to the Temporal task running the {@link WorkUnit} as a
- *   user-defined property {@link GobblinClusterConfigurationKeys#WORK_UNIT_FILE_PATH}. Upon startup, the Helix
+ *   user-defined property {@link GobblinClusterConfigurationKeys#WORK_UNIT_FILE_PATH}. Upon startup, the gobblin
  *   task reads the property for the file path and de-serializes the {@link WorkUnit} from the file.
  * </p>
  *
@@ -86,8 +87,6 @@ import static org.apache.gobblin.cluster.GobblinTemporalClusterManager.createSer
  *   This class is instantiated by the {@link GobblinTemporalJobScheduler} on every job submission to launch the Gobblin job.
  *   The actual task execution happens in the {@link GobblinTemporalTaskRunner}, usually in a different process.
  * </p>
- *
- * @author Yinan Li
  */
 @Alpha
 @Slf4j
@@ -114,11 +113,10 @@ public class GobblinTemporalJobLauncher extends AbstractJobLauncher {
   private WorkflowClient client;
 
   public GobblinTemporalJobLauncher(Properties jobProps, Path appWorkDir,
-      List<? extends Tag<?>> metadataTags, ConcurrentHashMap<String, Boolean> runningMap,
-      Optional<GobblinHelixMetrics> helixMetrics) throws Exception {
-
-    super(jobProps, HelixUtils.initBaseEventTags(jobProps, metadataTags));
-    LOGGER.debug("GobblinHelixJobLauncher: jobProps {}, appWorkDir {}", jobProps, appWorkDir);
+      List<? extends Tag<?>> metadataTags, ConcurrentHashMap<String, Boolean> runningMap)
+      throws Exception {
+    super(jobProps, initBaseEventTags(jobProps, metadataTags));
+    LOGGER.debug("GobblinTemporalJobLauncher: jobProps {}, appWorkDir {}", jobProps, appWorkDir);
     this.runningMap = runningMap;
     this.appWorkDir = appWorkDir;
     this.inputWorkUnitDir = new Path(appWorkDir, GobblinClusterConfigurationKeys.INPUT_WORK_UNIT_DIR_NAME);
@@ -211,13 +209,11 @@ public class GobblinTemporalJobLauncher extends AbstractJobLauncher {
     LOGGER.info("Cancel temporal workflow");
   }
 
-  protected void removeTasksFromCurrentJob(List<String> workUnitIdsToRemove) throws IOException, ExecutionException,
-                                                                                    RetryException {
+  protected void removeTasksFromCurrentJob(List<String> workUnitIdsToRemove) {
     LOGGER.info("Temporal removeTasksFromCurrentJob");
   }
 
-  protected void addTasksToCurrentJob(List<WorkUnit> workUnitsToAdd) throws IOException, ExecutionException,
-                                                                            RetryException {
+  protected void addTasksToCurrentJob(List<WorkUnit> workUnitsToAdd) {
     LOGGER.info("Temporal addTasksToCurrentJob");
   }
 
@@ -239,7 +235,6 @@ public class GobblinTemporalJobLauncher extends AbstractJobLauncher {
       }
 
       // Block on persistence of all workunits to be finished.
-      // It is necessary when underlying storage being slow and Helix activate task-execution before the workunit being persisted.
       stateSerDeRunner.waitForTasks(Long.MAX_VALUE);
 
       LOGGER.debug("GobblinTemporalJobLauncher.createTemporalJob: jobStateFilePath {}, jobState {} jobProperties {}",
@@ -256,6 +251,7 @@ public class GobblinTemporalJobLauncher extends AbstractJobLauncher {
         workUnitFilePathStr = persistWorkUnit(new Path(this.inputWorkUnitDir, this.jobContext.getJobId()), workUnit, stateSerDeRunner);
         WorkflowOptions options = WorkflowOptions.newBuilder()
             .setTaskQueue(Shared.GOBBLIN_TEMPORAL_TASK_QUEUE)
+            .setWorkflowId(workUnit.getProp(KafkaSource.TOPIC_NAME))
             .build();
         GobblinTemporalWorkflow workflow = this.client.newWorkflowStub(GobblinTemporalWorkflow.class, options);
         workflow.runTask(jobProps, appWorkDir.toString(), getJobId(), workUnitFilePathStr, jobStateFilePathStr);
@@ -321,8 +317,7 @@ public class GobblinTemporalJobLauncher extends AbstractJobLauncher {
   /**
    * Persist a single {@link WorkUnit} (flattened) to a file.
    */
-  private String persistWorkUnit(final Path workUnitFileDir, final WorkUnit workUnit, ParallelRunner stateSerDeRunner)
-      throws IOException {
+  private String persistWorkUnit(final Path workUnitFileDir, final WorkUnit workUnit, ParallelRunner stateSerDeRunner) {
     final StateStore stateStore;
     String workUnitFileName = workUnit.getId();
 
@@ -367,5 +362,53 @@ public class GobblinTemporalJobLauncher extends AbstractJobLauncher {
           GobblinClusterUtils.getJobStateFilePath(false, this.appWorkDir, this.jobContext.getJobId());
       this.fs.delete(jobStateFilePath, false);
     }
+  }
+
+  public static List<? extends Tag<?>> initBaseEventTags(Properties jobProps,
+      List<? extends Tag<?>> inputTags) {
+    List<Tag<?>> metadataTags = Lists.newArrayList(inputTags);
+    String jobId;
+
+    // generate job id if not already set
+    if (jobProps.containsKey(ConfigurationKeys.JOB_ID_KEY)) {
+      jobId = jobProps.getProperty(ConfigurationKeys.JOB_ID_KEY);
+    } else {
+      jobId = JobLauncherUtils.newJobId(JobState.getJobNameFromProps(jobProps),
+          PropertiesUtils.getPropAsLong(jobProps, ConfigurationKeys.FLOW_EXECUTION_ID_KEY, System.currentTimeMillis()));
+      jobProps.put(ConfigurationKeys.JOB_ID_KEY, jobId);
+    }
+
+    String jobExecutionId = Long.toString(Id.Job.parse(jobId).getSequence());
+
+    // only inject flow tags if a flow name is defined
+    if (jobProps.containsKey(ConfigurationKeys.FLOW_NAME_KEY)) {
+      metadataTags.add(new Tag<>(TimingEvent.FlowEventConstants.FLOW_GROUP_FIELD,
+          jobProps.getProperty(ConfigurationKeys.FLOW_GROUP_KEY, "")));
+      metadataTags.add(new Tag<>(TimingEvent.FlowEventConstants.FLOW_NAME_FIELD,
+          jobProps.getProperty(ConfigurationKeys.FLOW_NAME_KEY)));
+
+      // use job execution id if flow execution id is not present
+      metadataTags.add(new Tag<>(TimingEvent.FlowEventConstants.FLOW_EXECUTION_ID_FIELD,
+          jobProps.getProperty(ConfigurationKeys.FLOW_EXECUTION_ID_KEY, jobExecutionId)));
+    }
+
+    if (jobProps.containsKey(ConfigurationKeys.JOB_CURRENT_ATTEMPTS)) {
+      metadataTags.add(new Tag<>(TimingEvent.FlowEventConstants.CURRENT_ATTEMPTS_FIELD,
+          jobProps.getProperty(ConfigurationKeys.JOB_CURRENT_ATTEMPTS, "1")));
+      metadataTags.add(new Tag<>(TimingEvent.FlowEventConstants.CURRENT_GENERATION_FIELD,
+          jobProps.getProperty(ConfigurationKeys.JOB_CURRENT_GENERATION, "1")));
+      metadataTags.add(new Tag<>(TimingEvent.FlowEventConstants.SHOULD_RETRY_FIELD,
+          "false"));
+    }
+
+    metadataTags.add(new Tag<>(TimingEvent.FlowEventConstants.JOB_GROUP_FIELD,
+        jobProps.getProperty(ConfigurationKeys.JOB_GROUP_KEY, "")));
+    metadataTags.add(new Tag<>(TimingEvent.FlowEventConstants.JOB_NAME_FIELD,
+        jobProps.getProperty(ConfigurationKeys.JOB_NAME_KEY, "")));
+    metadataTags.add(new Tag<>(TimingEvent.FlowEventConstants.JOB_EXECUTION_ID_FIELD, jobExecutionId));
+
+    log.debug("AddAdditionalMetadataTags: metadataTags {}", metadataTags);
+
+    return metadataTags;
   }
 }

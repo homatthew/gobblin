@@ -84,18 +84,6 @@ import static org.apache.gobblin.cluster.GobblinTemporalClusterManager.createSer
  * {@link org.apache.gobblin.source.workunit.WorkUnit}s.
  *
  * <p>
- *   This class presents a Helix participant that uses a to communicate with Helix.
- *   It uses Helix task execution framework and details are encapsulated in {@link TaskRunnerSuiteBase}.
- * </p>
- *
- * <p>
- *   This class responds to a graceful shutdown initiated by the {@link GobblinTemporalClusterManager} via
- *   a Helix message of subtype {@link HelixMessageSubTypes#WORK_UNIT_RUNNER_SHUTDOWN}, or it does a
- *   graceful shutdown when the shutdown hook gets called. In both cases, {@link #stop()} will be
- *   called to start the graceful shutdown.
- * </p>
- *
- * <p>
  *   If for some reason, the container exits or gets killed, the {@link GobblinTemporalClusterManager} will
  *   be notified for the completion of the container and will start a new container to replace this one.
  * </p>
@@ -136,9 +124,6 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
       String taskRunnerId,
       Config config,
       Optional<Path> appWorkDirOptional) throws Exception {
-    // Set system properties passed in via application config. As an example, Helix uses System#getProperty() for ZK configuration
-    // overrides such as sessionTimeout. In this case, the overrides specified
-    // in the application configuration have to be extracted and set before initializing HelixManager.
     GobblinClusterUtils.setSystemProperties(config);
 
     //Add dynamic config
@@ -356,7 +341,7 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
     EventSubmitter eventSubmitter = new EventSubmitter.Builder(RootMetricContext.get(), getClass().getPackage().getName()).build();
     GobblinEventBuilder eventBuilder = new GobblinEventBuilder(event.getClass().getSimpleName());
     State taskState = ConfigUtils.configToState(event.getConfig());
-    //Add task metadata such as Helix taskId, containerId, and workflowId if configured
+    //Add task metadata such as taskId, containerId, and workflowId if configured
     TaskEventMetadataGenerator taskEventMetadataGenerator = TaskEventMetadataUtils.getTaskEventMetadataGenerator(taskState);
     eventBuilder.addAdditionalMetadata(taskEventMetadataGenerator.getMetadata(taskState, event.getClass().getSimpleName()));
     eventBuilder.addAdditionalMetadata(event.getMetadata());

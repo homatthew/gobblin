@@ -68,7 +68,7 @@ public class GobblinTemporalWorkflowImpl implements GobblinTemporalWorkflow {
             .build();
 
     /*
-     * Define the HelloWorldActivity stub. Activity stubs are proxies for activity invocations that
+     * Define the GobblinTemporalActivity stub. Activity stubs are proxies for activity invocations that
      * are executed outside of the workflow thread on the activity worker, that can be on a
      * different host. Temporal is going to dispatch the activity results back to the workflow and
      * unblock the stub as soon as activity is completed on the activity worker.
@@ -123,11 +123,10 @@ public class GobblinTemporalWorkflowImpl implements GobblinTemporalWorkflow {
                         String formattedDateTime = formatter.format(instant);
 
                         GobblinEventBuilder eventBuilder = new GobblinEventBuilder("TemporalEvent");
-                        eventBuilder.addMetadata(event.getEventType().name(), formattedDateTime);
+                        eventBuilder.addMetadata(event.getEventType().name(), workflowId);
+                        eventBuilder.addMetadata("EventTime", formattedDateTime);
+                        // add metadata of workflow topic
                         eventSubmitter.submit(eventBuilder);
-
-                        LOGGER.info("Temporal HistoryEvent: {}", event.getEventType().name());
-                        LOGGER.info("Temporal HistoryEvent Time: {}", formattedDateTime);
 
                         lastLoggedEventId[0] = event.getEventId();
                     }
@@ -142,4 +141,3 @@ public class GobblinTemporalWorkflowImpl implements GobblinTemporalWorkflow {
         executorService.shutdown();
     }
 }
-// @@@SNIPEND

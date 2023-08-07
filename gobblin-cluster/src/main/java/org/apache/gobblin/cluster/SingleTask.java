@@ -114,8 +114,7 @@ public class SingleTask {
     }
   }
 
-  public void run()
-      throws IOException, InterruptedException {
+  public void run() throws IOException, InterruptedException {
     _logger.info("Running SingleTask");
 
     if (_jobState == null) {
@@ -123,19 +122,16 @@ public class SingleTask {
     }
 
     MetricContext metricContext = MetricContext.builder("SingleTaskContext").build();
-    EventSubmitter eventSubmitter = new EventSubmitter.Builder(metricContext, "gobblin.SingleTask").build();
-    String eventTime = Instant.now().toString();
+    EventSubmitter eventSubmitter = new EventSubmitter.Builder(metricContext, getClass().getPackage().getName()).build();
 
     // Add dynamic configuration to the job state
     _dynamicConfig.entrySet().forEach(e -> _jobState.setProp(e.getKey(), e.getValue().unwrapped().toString()));
 
     Config jobConfig = getConfigFromJobState(_jobState);
 
-    _logger.debug("SingleTask.run: jobId {} workUnitFilePath {} jobStateFilePath {} jobState {} jobConfig {}",
-        _jobId, _workUnitFilePath, _jobStateFilePath, _jobState, jobConfig);
+    _logger.debug("SingleTask.run: jobId {} workUnitFilePath {} jobStateFilePath {} jobState {} jobConfig {}", _jobId, _workUnitFilePath, _jobStateFilePath, _jobState, jobConfig);
 
-    try (SharedResourcesBroker<GobblinScopeTypes> globalBroker = SharedResourcesBrokerFactory
-        .createDefaultTopLevelBroker(jobConfig, GobblinScopeTypes.GLOBAL.defaultScopeInstance())) {
+    try (SharedResourcesBroker<GobblinScopeTypes> globalBroker = SharedResourcesBrokerFactory.createDefaultTopLevelBroker(jobConfig, GobblinScopeTypes.GLOBAL.defaultScopeInstance())) {
       SharedResourcesBroker<GobblinScopeTypes> jobBroker = getJobBroker(_jobState, globalBroker);
 
       // Secure atomicity of taskAttempt's execution.
@@ -145,28 +141,28 @@ public class SingleTask {
       _lock.lock();
       try {
         _taskAttemptBuilt.signal();
-        GobblinEventBuilder eventBuilder = new GobblinEventBuilder("TaskAttemptBuiltSignal");
-        eventBuilder.addMetadata("signalEventTime", Instant.now().toString());
-        eventSubmitter.submit(eventBuilder);
+        submitEvent(eventSubmitter, "GobblinTaskAttemptBuiltSignal");
       } finally {
         _lock.unlock();
       }
 
       // This is a blocking call.
-      GobblinEventBuilder eventBuilder = new GobblinEventBuilder("TaskAttemptRunAndOptionallyCommit");
-      eventBuilder.addMetadata("eventTime", Instant.now().toString());
-      eventSubmitter.submit(eventBuilder);
+      submitEvent(eventSubmitter, "GobblinTaskAttemptRunAndOptionallyCommit");
 
       _taskAttempt.runAndOptionallyCommitTaskAttempt(GobblinMultiTaskAttempt.CommitPolicy.IMMEDIATE);
 
     } finally {
       _logger.info("Clearing all metrics object in cache.");
-
-      GobblinEventBuilder eventBuilder = new GobblinEventBuilder("TaskAttemptCleanMetrics");
-      eventBuilder.addMetadata("eventTime", Instant.now().toString());
-      eventSubmitter.submit(eventBuilder);
+      submitEvent(eventSubmitter, "GobblinTaskAttemptCleanMetrics");
       _taskAttempt.cleanMetrics();
     }
+  }
+
+  private void submitEvent(EventSubmitter eventSubmitter, String eventName) {
+    GobblinEventBuilder eventBuilder = new GobblinEventBuilder(eventName);
+    eventBuilder.addMetadata("EventTime", Instant.now().toString());
+    eventBuilder.addMetadata("TaskAttempt", _jobId);
+    eventSubmitter.submit(eventBuilder);
   }
 
   private SharedResourcesBroker<GobblinScopeTypes> getJobBroker(JobState jobState,

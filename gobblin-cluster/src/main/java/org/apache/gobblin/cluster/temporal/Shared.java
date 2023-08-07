@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-// @@@SNIPSTART hello-world-project-template-java-shared-constants
 package org.apache.gobblin.cluster.temporal;
 
 public interface Shared {
@@ -24,4 +23,3 @@ public interface Shared {
     final String GOBBLIN_TEMPORAL_TASK_QUEUE = "GobblinTemporalTaskQueue";
 
 }
-// @@@SNIPEND

@@ -95,7 +95,7 @@ public class EventSubmitter {
     if (metricContext.isPresent()) {
       this.metricContext.get().submitEvent(eventBuilder.build());
     }
-    LOGGER.info("EventBuilder {} is submitted.", eventBuilder.name);
+    LOGGER.info("EventBuilder {} is submitted. Metadata: {} ", eventBuilder.name, eventBuilder.getMetadata().toString());
   }
 
   /**

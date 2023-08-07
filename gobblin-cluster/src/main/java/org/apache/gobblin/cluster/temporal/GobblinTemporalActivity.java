@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-// @@@SNIPSTART hello-world-project-template-java-activity-interface
 package org.apache.gobblin.cluster.temporal;
 
 import java.util.Properties;
@@ -30,10 +29,9 @@ import io.temporal.activity.ActivityInterface;
 @ActivityInterface
 public interface GobblinTemporalActivity {
 
-    // Define your activity methods which can be called during workflow execution
     String composeGreeting(String name);
 
+    // Method to run Gobblin Task in activity
     void run(Properties jobProps, String appWorkDir, String jobId, String workUnitFilePath, String jobStateFilePath)
         throws Exception;
 }
-// @@@SNIPEND
