@@ -19,6 +19,8 @@ package org.apache.gobblin.cluster;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
@@ -122,7 +124,8 @@ public class SingleTask {
     }
 
     MetricContext metricContext = MetricContext.builder("SingleTaskContext").build();
-    EventSubmitter eventSubmitter = new EventSubmitter.Builder(metricContext, getClass().getPackage().getName()).build();
+    EventSubmitter eventSubmitter = new EventSubmitter.Builder(metricContext, "gobblin.task").build();
+    submitEvent(eventSubmitter, "GobblinTaskStarted");
 
     // Add dynamic configuration to the job state
     _dynamicConfig.entrySet().forEach(e -> _jobState.setProp(e.getKey(), e.getValue().unwrapped().toString()));
@@ -160,8 +163,13 @@ public class SingleTask {
 
   private void submitEvent(EventSubmitter eventSubmitter, String eventName) {
     GobblinEventBuilder eventBuilder = new GobblinEventBuilder(eventName);
-    eventBuilder.addMetadata("EventTime", Instant.now().toString());
-    eventBuilder.addMetadata("TaskAttempt", _jobId);
+    Instant instant = Instant.now();
+    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+        .withZone(ZoneId.systemDefault());
+    String formattedDateTime = formatter.format(instant);
+    eventBuilder.addMetadata("EventType", eventName);
+    eventBuilder.addMetadata("JobId", _jobId);
+    eventBuilder.addMetadata("EventTime", formattedDateTime);
     eventSubmitter.submit(eventBuilder);
   }
 

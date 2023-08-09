@@ -60,12 +60,15 @@ import org.apache.gobblin.annotation.Alpha;
 import org.apache.gobblin.cluster.temporal.GobblinTemporalActivityImpl;
 import org.apache.gobblin.cluster.temporal.GobblinTemporalWorkflowImpl;
 import org.apache.gobblin.cluster.temporal.Shared;
+import org.apache.gobblin.configuration.ConfigurationKeys;
 import org.apache.gobblin.configuration.State;
 import org.apache.gobblin.instrumented.StandardMetricsBridge;
 import org.apache.gobblin.metrics.GobblinMetrics;
+import org.apache.gobblin.metrics.MultiReporterException;
 import org.apache.gobblin.metrics.RootMetricContext;
 import org.apache.gobblin.metrics.event.EventSubmitter;
 import org.apache.gobblin.metrics.event.GobblinEventBuilder;
+import org.apache.gobblin.metrics.reporter.util.MetricReportUtils;
 import org.apache.gobblin.runtime.api.TaskEventMetadataGenerator;
 import org.apache.gobblin.util.ClassAliasResolver;
 import org.apache.gobblin.util.ConfigUtils;
@@ -118,6 +121,9 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
   protected final FileSystem fs;
   protected final String applicationName;
   protected final String applicationId;
+  protected final int temporalWorkerSize;
+  private final boolean isMetricReportingFailureFatal;
+  private final boolean isEventReportingFailureFatal;
 
   public GobblinTemporalTaskRunner(String applicationName,
       String applicationId,
@@ -142,6 +148,15 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
 
     this.containerMetrics = buildContainerMetrics();
     this.builder = initBuilder();
+    this.temporalWorkerSize = ConfigUtils.getInt(config, "temporal.worker.size",5);
+
+    this.isMetricReportingFailureFatal = ConfigUtils.getBoolean(this.clusterConfig,
+        ConfigurationKeys.GOBBLIN_TASK_METRIC_REPORTING_FAILURE_FATAL,
+        ConfigurationKeys.DEFAULT_GOBBLIN_TASK_METRIC_REPORTING_FAILURE_FATAL);
+
+    this.isEventReportingFailureFatal = ConfigUtils.getBoolean(this.clusterConfig,
+        ConfigurationKeys.GOBBLIN_TASK_EVENT_REPORTING_FAILURE_FATAL,
+        ConfigurationKeys.DEFAULT_GOBBLIN_TASK_EVENT_REPORTING_FAILURE_FATAL);
 
     logger.info("GobblinTaskRunner({}): applicationName {}, applicationId {}, taskRunnerId {}, config {}, appWorkDir {}",
         this.isTaskDriver ? "taskDriver" : "worker",
@@ -202,15 +217,21 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
       throws ContainerHealthCheckException {
     logger.info("Calling start method in GobblinTemporalTaskRunner");
     logger.info(String.format("Starting in container %s", this.taskRunnerId));
+
+    // Start metric reporting
+    initMetricReporter();
+
+    // Add a shutdown hook so the task scheduler gets properly shutdown
+    addShutdownHook();
+
     try {
-      initiateWorker();
+      for (int i = 0; i < this.temporalWorkerSize; i++) {
+        initiateWorker();
+      }
     }catch (Exception e) {
       logger.info(e + " for initiate workers");
       throw new RuntimeException(e);
     }
-
-    // Add a shutdown hook so the task scheduler gets properly shutdown
-    addShutdownHook();
   }
 
   private void initiateWorker() throws Exception{
@@ -252,6 +273,19 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
      */
     factory.start();
     logger.info("A new worker is started.");
+  }
+
+  private void initMetricReporter() {
+    if (this.containerMetrics.isPresent()) {
+      try {
+        this.containerMetrics.get()
+            .startMetricReportingWithFileSuffix(ConfigUtils.configToState(this.clusterConfig), this.taskRunnerId);
+      } catch (MultiReporterException ex) {
+        if (MetricReportUtils.shouldThrowException(logger, ex, this.isMetricReportingFailureFatal, this.isEventReportingFailureFatal)) {
+          throw new RuntimeException(ex);
+        }
+      }
+    }
   }
 
   public synchronized void stop() {

@@ -422,13 +422,14 @@ public class YarnTemporalService extends AbstractIdleService {
    * @return whether successfully requested the target number of containers
    */
   public synchronized boolean requestTargetNumberOfContainers(YarnContainerRequestBundle yarnContainerRequestBundle, Set<String> inUseInstances) {
-    LOGGER.info("Trying to set numTargetContainers={}, in-use helix instances count is {}, container map size is {}",
-        yarnContainerRequestBundle.getTotalContainers(), inUseInstances.size(), this.containerMap.size());
-
     int defaultContainerMemoryMbs = config.getInt(GobblinYarnConfigurationKeys.CONTAINER_MEMORY_MBS_KEY);
     int defaultContainerCores = config.getInt(GobblinYarnConfigurationKeys. CONTAINER_CORES_KEY);
-    // making workerPoolSize configurable, the default value would be 2
-    int workerPoolSize = ConfigUtils.getInt(config, "temporal.workerpool.size",2);
+    // making workerPoolSize configurable, the default value would be 1
+    int workerPoolSize = ConfigUtils.getInt(config, "temporal.workerpool.size",1);
+
+    LOGGER.info("Trying to set numTargetContainers={}, in-use helix instances count is {}, container map size is {}",
+        workerPoolSize, inUseInstances.size(), this.containerMap.size());
+
     requestContainers(workerPoolSize, Resource.newInstance(defaultContainerMemoryMbs, defaultContainerCores));
 
     this.yarnContainerRequest = yarnContainerRequestBundle;

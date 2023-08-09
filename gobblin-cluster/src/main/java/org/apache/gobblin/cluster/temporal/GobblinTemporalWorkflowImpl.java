@@ -22,7 +22,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.time.format.FormatStyle;
 import java.util.Properties;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -101,7 +100,7 @@ public class GobblinTemporalWorkflowImpl implements GobblinTemporalWorkflow {
         ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1);
 
         MetricContext metricContext = MetricContext.builder("TemporalWorkflowContext").build();
-        EventSubmitter eventSubmitter = new EventSubmitter.Builder(metricContext, getClass().getPackage().getName()).build();
+        EventSubmitter eventSubmitter = new EventSubmitter.Builder(metricContext, "gobblin.temporal").build();
 
         final long[] lastLoggedEventId = {0};
         executorService.scheduleAtFixedRate(() -> {
@@ -118,12 +117,13 @@ public class GobblinTemporalWorkflowImpl implements GobblinTemporalWorkflow {
                     if (event.getEventId() > lastLoggedEventId[0]) {
                         Timestamp timestamp = event.getEventTime();
                         Instant instant = Instant.ofEpochSecond(timestamp.getSeconds(), timestamp.getNanos());
-                        DateTimeFormatter formatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM)
+                        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
                             .withZone(ZoneId.systemDefault());
                         String formattedDateTime = formatter.format(instant);
 
                         GobblinEventBuilder eventBuilder = new GobblinEventBuilder("TemporalEvent");
-                        eventBuilder.addMetadata(event.getEventType().name(), workflowId);
+                        eventBuilder.addMetadata("WorkflowId", workflowId);
+                        eventBuilder.addMetadata("EventType", event.getEventType().name());
                         eventBuilder.addMetadata("EventTime", formattedDateTime);
                         // add metadata of workflow topic
                         eventSubmitter.submit(eventBuilder);
