@@ -148,7 +148,7 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
 
     this.containerMetrics = buildContainerMetrics();
     this.builder = initBuilder();
-    this.temporalWorkerSize = ConfigUtils.getInt(config, "temporal.worker.size",5);
+    this.temporalWorkerSize = ConfigUtils.getInt(config, GobblinClusterConfigurationKeys.TEMPORAL_WORKER_SIZE,10);
 
     this.isMetricReportingFailureFatal = ConfigUtils.getBoolean(this.clusterConfig,
         ConfigurationKeys.GOBBLIN_TASK_METRIC_REPORTING_FAILURE_FATAL,

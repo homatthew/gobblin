@@ -78,14 +78,22 @@ public class SingleTask {
   private JobState _jobState;
 
   // Preventing Helix calling cancel before taskAttempt is created
-  // Checking if taskAttempt is empty is not enough, since canceller runs in different thread as runner, the case to
+  // Checking if taskAttempt is empty is not enough, since canceller runs in different thread as runner, the case
   // to avoid here is taskAttempt being created and start to run after cancel has been called.
   private Condition _taskAttemptBuilt;
   private Lock _lock;
+  private String workflowId;
 
   public SingleTask(String jobId, Path workUnitFilePath, Path jobStateFilePath, FileSystem fs,
       TaskAttemptBuilder taskAttemptBuilder, StateStores stateStores, Config dynamicConfig) {
     this(jobId, workUnitFilePath, jobStateFilePath, fs, taskAttemptBuilder, stateStores, dynamicConfig, false);
+    this.workflowId = "";
+  }
+
+  public SingleTask(String jobId, Path workUnitFilePath, Path jobStateFilePath, FileSystem fs,
+      TaskAttemptBuilder taskAttemptBuilder, StateStores stateStores, Config dynamicConfig, String workflowId) {
+    this(jobId, workUnitFilePath, jobStateFilePath, fs, taskAttemptBuilder, stateStores, dynamicConfig, false);
+    this.workflowId = workflowId;
   }
 
   /**
@@ -168,7 +176,7 @@ public class SingleTask {
         .withZone(ZoneId.systemDefault());
     String formattedDateTime = formatter.format(instant);
     eventBuilder.addMetadata("EventType", eventName);
-    eventBuilder.addMetadata("JobId", _jobId);
+    eventBuilder.addMetadata("WorkflowId", this.workflowId);
     eventBuilder.addMetadata("EventTime", formattedDateTime);
     eventSubmitter.submit(eventBuilder);
   }

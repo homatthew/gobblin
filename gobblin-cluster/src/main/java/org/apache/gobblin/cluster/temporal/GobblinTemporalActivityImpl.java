@@ -63,7 +63,7 @@ public class GobblinTemporalActivityImpl implements GobblinTemporalActivity {
     }
 
     @Override
-    public void run(Properties jobProps, String appWorkDirStr, String jobId, String workUnitFilePath, String jobStateFilePath)
+    public void run(Properties jobProps, String appWorkDirStr, String jobId, String workUnitFilePath, String jobStateFilePath, String workflowId)
         throws Exception {
         Path appWorkDir = new Path(appWorkDirStr);
         this.builder = GobblinTemporalTaskRunner.getBuilder();
@@ -87,7 +87,7 @@ public class GobblinTemporalActivityImpl implements GobblinTemporalActivity {
             .withValue(GobblinClusterConfigurationKeys.CONTAINER_ID_KEY, ConfigValueFactory.fromAnyRef(builder.getContainerId()))
             .withValue(GobblinClusterConfigurationKeys.HELIX_INSTANCE_NAME_KEY, ConfigValueFactory.fromAnyRef(builder.getInstanceName()));
 
-        SingleTask singleTask = new SingleTask(jobId, new Path(workUnitFilePath), new Path(jobStateFilePath), builder.getFs(), this.taskAttemptBuilder, this.stateStores, dynamicConfig);
+        SingleTask singleTask = new SingleTask(jobId, new Path(workUnitFilePath), new Path(jobStateFilePath), builder.getFs(), this.taskAttemptBuilder, this.stateStores, dynamicConfig, workflowId);
         singleTask.run();
     }
 }

@@ -19,8 +19,6 @@ package org.apache.gobblin.cluster.temporal;
 
 import java.util.Properties;
 
-import org.apache.hadoop.fs.Path;
-
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 
 import io.temporal.activity.ActivityInterface;
@@ -32,6 +30,6 @@ public interface GobblinTemporalActivity {
     String composeGreeting(String name);
 
     // Method to run Gobblin Task in activity
-    void run(Properties jobProps, String appWorkDir, String jobId, String workUnitFilePath, String jobStateFilePath)
+    void run(Properties jobProps, String appWorkDir, String jobId, String workUnitFilePath, String jobStateFilePath, String workflowId)
         throws Exception;
 }

@@ -19,10 +19,13 @@ package org.apache.gobblin.cluster;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -184,14 +187,12 @@ public class GobblinTemporalJobLauncher extends AbstractJobLauncher {
       TimingEvent jobSubmissionTimer =
           this.eventSubmitter.getTimingEvent(TimingEvent.RunJobTimings.HELIX_JOB_SUBMISSION);
 
-      synchronized (this.cancellationRequest) {
-        if (!this.cancellationRequested) {
-          submitJobToTemporal(workUnits);
-          jobSubmissionTimer.stop();
-          LOGGER.info(String.format("Submitted job %s to Temporal", this.jobContext.getJobId()));
-        } else {
-          LOGGER.warn("Job {} not submitted to Temporal as it was requested to be cancelled.", this.jobContext.getJobId());
-        }
+      if (!this.cancellationRequested) {
+        submitJobToTemporal(workUnits);
+        jobSubmissionTimer.stop();
+        LOGGER.info(String.format("Submitted job %s to Temporal", this.jobContext.getJobId()));
+      } else {
+        LOGGER.warn("Job {} not submitted to Temporal as it was requested to be cancelled.", this.jobContext.getJobId());
       }
 
       TimingEvent jobRunTimer = this.eventSubmitter.getTimingEvent(TimingEvent.RunJobTimings.HELIX_JOB_RUN);
@@ -240,22 +241,35 @@ public class GobblinTemporalJobLauncher extends AbstractJobLauncher {
       LOGGER.debug("GobblinTemporalJobLauncher.createTemporalJob: jobStateFilePath {}, jobState {} jobProperties {}",
           jobStateFilePath, this.jobContext.getJobState().toString(), this.jobContext.getJobState().getProperties());
 
-      String workUnitFilePathStr;
       String jobStateFilePathStr = jobStateFilePath.toString();
 
-      int multiTaskIdSequence = 0;
-      for (WorkUnit workUnit : workUnits) {
-        if (workUnit instanceof MultiWorkUnit) {
-          workUnit.setId(JobLauncherUtils.newMultiTaskId(this.jobContext.getJobId(), multiTaskIdSequence++));
-        }
-        workUnitFilePathStr = persistWorkUnit(new Path(this.inputWorkUnitDir, this.jobContext.getJobId()), workUnit, stateSerDeRunner);
-        WorkflowOptions options = WorkflowOptions.newBuilder()
-            .setTaskQueue(Shared.GOBBLIN_TEMPORAL_TASK_QUEUE)
-            .setWorkflowId(workUnit.getProp(KafkaSource.TOPIC_NAME))
-            .build();
-        GobblinTemporalWorkflow workflow = this.client.newWorkflowStub(GobblinTemporalWorkflow.class, options);
-        workflow.runTask(jobProps, appWorkDir.toString(), getJobId(), workUnitFilePathStr, jobStateFilePathStr);
+      List<CompletableFuture<Void>> futures = new ArrayList<>();
+      AtomicInteger multiTaskIdSequence = new AtomicInteger(0);
+      AtomicInteger workflowCount = new AtomicInteger(0);
+      int workflowSize = 100;
+
+      for (int i = 0; i < workflowSize; i++) {
+        WorkUnit workUnit = workUnits.get(i);
+        futures.add(CompletableFuture.runAsync(() -> {
+          try {
+            if (workUnit instanceof MultiWorkUnit) {
+              workUnit.setId(JobLauncherUtils.newMultiTaskId(this.jobContext.getJobId(), multiTaskIdSequence.getAndIncrement()));
+            }
+            String workUnitFilePathStr = persistWorkUnit(new Path(this.inputWorkUnitDir, this.jobContext.getJobId()), workUnit, stateSerDeRunner);
+            String workflowId = workUnit.getProp(KafkaSource.TOPIC_NAME) + "_" + workflowCount.getAndIncrement();
+            WorkflowOptions options = WorkflowOptions.newBuilder()
+                .setTaskQueue(Shared.GOBBLIN_TEMPORAL_TASK_QUEUE)
+                .setWorkflowId(workflowId)
+                .build();
+            GobblinTemporalWorkflow workflow = this.client.newWorkflowStub(GobblinTemporalWorkflow.class, options);
+            LOGGER.info("Setting up temporal workflow {}", workflowId);
+            workflow.runTask(jobProps, appWorkDir.toString(), getJobId(), workUnitFilePathStr, jobStateFilePathStr);
+          } catch (Exception e) {
+            throw new RuntimeException(e);
+          }
+        }));
       }
+      CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
     }
   }
 
