@@ -1196,7 +1196,7 @@ public class IcebergMetadataWriter implements MetadataWriter {
       this.serializedAuditCountMaps.clear();
     }
 
-    TableMetadata(Configuration conf) {
+    public TableMetadata(Configuration conf) {
       this.conf = conf;
       addedFiles = CacheBuilder.newBuilder()
           .expireAfterAccess(this.conf.getInt(ADDED_FILES_CACHE_EXPIRING_TIME, DEFAULT_ADDED_FILES_CACHE_EXPIRING_TIME),
