@@ -61,7 +61,6 @@ public class GobblinTemporalWorkflowImpl implements GobblinTemporalWorkflow {
         .build();
 
     int yearPeriod = 365 * 24 * 60 * 60;
-    int testPeriod = 60 * 10;
     private final ActivityOptions options = ActivityOptions.newBuilder()
             .setStartToCloseTimeout(Duration.ofSeconds(yearPeriod))
             .setRetryOptions(retryoptions)

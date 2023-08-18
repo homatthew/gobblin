@@ -25,6 +25,8 @@ import java.util.Properties;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.hadoop.conf.Configuration;
@@ -247,6 +249,7 @@ public class GobblinTemporalJobLauncher extends AbstractJobLauncher {
       AtomicInteger multiTaskIdSequence = new AtomicInteger(0);
       AtomicInteger workflowCount = new AtomicInteger(0);
       int workflowSize = 100;
+      ExecutorService executor = Executors.newFixedThreadPool(workflowSize);
 
       for (int i = 0; i < workflowSize; i++) {
         WorkUnit workUnit = workUnits.get(i);
@@ -267,7 +270,7 @@ public class GobblinTemporalJobLauncher extends AbstractJobLauncher {
           } catch (Exception e) {
             throw new RuntimeException(e);
           }
-        }));
+        }, executor));
       }
       CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
     }

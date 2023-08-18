@@ -93,6 +93,7 @@ public class SingleTask {
   public SingleTask(String jobId, Path workUnitFilePath, Path jobStateFilePath, FileSystem fs,
       TaskAttemptBuilder taskAttemptBuilder, StateStores stateStores, Config dynamicConfig, String workflowId) {
     this(jobId, workUnitFilePath, jobStateFilePath, fs, taskAttemptBuilder, stateStores, dynamicConfig, false);
+    _logger.info("Gobblin task workflowid: {}", workflowId);
     this.workflowId = workflowId;
   }
 
@@ -161,7 +162,6 @@ public class SingleTask {
       submitEvent(eventSubmitter, "GobblinTaskAttemptRunAndOptionallyCommit");
 
       _taskAttempt.runAndOptionallyCommitTaskAttempt(GobblinMultiTaskAttempt.CommitPolicy.IMMEDIATE);
-
     } finally {
       _logger.info("Clearing all metrics object in cache.");
       submitEvent(eventSubmitter, "GobblinTaskAttemptCleanMetrics");

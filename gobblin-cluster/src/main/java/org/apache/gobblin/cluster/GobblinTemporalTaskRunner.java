@@ -53,6 +53,7 @@ import io.temporal.client.WorkflowClientOptions;
 import io.temporal.serviceclient.WorkflowServiceStubs;
 import io.temporal.worker.Worker;
 import io.temporal.worker.WorkerFactory;
+import io.temporal.worker.WorkerOptions;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -148,7 +149,8 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
 
     this.containerMetrics = buildContainerMetrics();
     this.builder = initBuilder();
-    this.temporalWorkerSize = ConfigUtils.getInt(config, GobblinClusterConfigurationKeys.TEMPORAL_WORKER_SIZE,10);
+    // The default worker size would be 1
+    this.temporalWorkerSize = ConfigUtils.getInt(config, GobblinClusterConfigurationKeys.TEMPORAL_WORKER_SIZE,1);
 
     this.isMetricReportingFailureFatal = ConfigUtils.getBoolean(this.clusterConfig,
         ConfigurationKeys.GOBBLIN_TASK_METRIC_REPORTING_FAILURE_FATAL,
@@ -238,6 +240,11 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
     logger.info("Starting Temporal Worker");
     WorkflowServiceStubs service = createServiceStubs();
 
+    WorkerOptions workerOptions = WorkerOptions.newBuilder()
+        .setMaxConcurrentWorkflowTaskExecutionSize(1)
+        .setMaxConcurrentActivityExecutionSize(1)
+        .build();
+
     // WorkflowClient can be used to start, signal, query, cancel, and terminate Workflows.
     WorkflowClient client =
         WorkflowClient.newInstance(
@@ -252,7 +259,7 @@ public class GobblinTemporalTaskRunner implements StandardMetricsBridge {
      * Define the workflow worker. Workflow workers listen to a defined task queue and process
      * workflows and activities.
      */
-    Worker worker = factory.newWorker(Shared.GOBBLIN_TEMPORAL_TASK_QUEUE);
+    Worker worker = factory.newWorker(Shared.GOBBLIN_TEMPORAL_TASK_QUEUE, workerOptions);
 
     /*
      * Register our workflow implementation with the worker.

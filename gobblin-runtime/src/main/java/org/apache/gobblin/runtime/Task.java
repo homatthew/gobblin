@@ -363,9 +363,9 @@ public class Task implements TaskIFace {
         LOG.warn("Synchronous task execution model is deprecated. Please consider using stream model.");
         runSynchronousModel();
       } else {
-//        new StreamModelTaskRunner(this, this.taskState, this.closer, this.taskContext, this.extractor,
-//            this.converter, this.recordStreamProcessors, this.rowChecker, this.taskExecutor, this.taskMode, this.shutdownRequested,
-//            this.watermarkTracker, this.watermarkManager, this.watermarkStorage, this.forks).run();
+        new StreamModelTaskRunner(this, this.taskState, this.closer, this.taskContext, this.extractor,
+            this.converter, this.recordStreamProcessors, this.rowChecker, this.taskExecutor, this.taskMode, this.shutdownRequested,
+            this.watermarkTracker, this.watermarkManager, this.watermarkStorage, this.forks).run();
       }
 
       LOG.info("Extracted " + this.recordsPulled + " data records");
