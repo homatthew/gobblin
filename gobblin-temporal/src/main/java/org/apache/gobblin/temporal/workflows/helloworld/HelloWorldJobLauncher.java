@@ -17,17 +17,24 @@
 
 package org.apache.gobblin.temporal.workflows.helloworld;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.hadoop.fs.Path;
+import org.slf4j.Logger;
 
 import io.temporal.client.WorkflowOptions;
-import lombok.extern.slf4j.Slf4j;
+import io.temporal.workflow.Workflow;
 
 import org.apache.gobblin.annotation.Alpha;
+import org.apache.gobblin.configuration.State;
+import org.apache.gobblin.metrics.GobblinMetrics;
 import org.apache.gobblin.metrics.Tag;
+import org.apache.gobblin.metrics.event.EventSubmitter;
 import org.apache.gobblin.runtime.JobLauncher;
 import org.apache.gobblin.source.workunit.WorkUnit;
 import org.apache.gobblin.temporal.cluster.GobblinTemporalTaskRunner;
@@ -44,8 +51,9 @@ import org.apache.gobblin.temporal.joblauncher.GobblinTemporalJobScheduler;
  * </p>
  */
 @Alpha
-@Slf4j
 public class HelloWorldJobLauncher extends GobblinTemporalJobLauncher {
+  private static Logger log = Workflow.getLogger(HelloWorldJobLauncher.class);
+
   public HelloWorldJobLauncher(Properties jobProps, Path appWorkDir, List<? extends Tag<?>> metadataTags,
       ConcurrentHashMap<String, Boolean> runningMap)
       throws Exception {
@@ -56,6 +64,25 @@ public class HelloWorldJobLauncher extends GobblinTemporalJobLauncher {
   public void submitJob(List<WorkUnit> workunits) {
     WorkflowOptions options = WorkflowOptions.newBuilder().setTaskQueue(queueName).build();
     GreetingWorkflow greetingWorkflow = this.client.newWorkflowStub(GreetingWorkflow.class, options);
-    greetingWorkflow.getGreeting("Gobblin");
+
+    List<Tag<?>> tags = getTags(jobProps, eventSubmitter);
+    String greeting = greetingWorkflow.getGreeting("Gobblin", eventSubmitter.getNamespace(), tags);
+    log.info(greeting);
+  }
+
+  public static List<Tag<?>> getTags(Properties jobProps, EventSubmitter eventSubmitter) {
+    Map<String, Tag<?>> tagsMap = new HashMap<>();
+    // this step might be unnecessary because there metrics classes that call this method already and fill in the job props
+    // at this point
+    GobblinMetrics.getCustomTagsFromState(new State(jobProps)).forEach(tag -> tagsMap.put(tag.getKey(), tag));
+    eventSubmitter.getTags().forEach(tag -> {
+      if (tagsMap.containsKey(tag.getKey())) {
+        log.warn("Duplicate tag key: " + tag.getKey());
+      }
+
+      tagsMap.put(tag.getKey(), tag);
+    });
+
+    return new ArrayList<>(tagsMap.values());
   }
 }

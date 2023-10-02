@@ -27,6 +27,7 @@ import org.apache.gobblin.temporal.cluster.AbstractTemporalWorker;
 import org.apache.gobblin.temporal.ddm.activity.impl.ProcessWorkUnitImpl;
 import org.apache.gobblin.temporal.ddm.workflow.impl.NestingExecOfProcessWorkUnitWorkflowImpl;
 import org.apache.gobblin.temporal.ddm.workflow.impl.ProcessWorkUnitsWorkflowImpl;
+import org.apache.gobblin.temporal.workflows.trackingevent.activity.GobblinTrackingEventActivityImpl;
 
 
 /** Worker for the {@link ProcessWorkUnitsWorkflowImpl} super-workflow */
@@ -45,7 +46,7 @@ public class WorkFulfillmentWorker extends AbstractTemporalWorker {
 
     @Override
     protected Object[] getActivityImplInstances() {
-        return new Object[] { new ProcessWorkUnitImpl() };
+        return new Object[] { new ProcessWorkUnitImpl(), new GobblinTrackingEventActivityImpl()};
     }
 
     @Override

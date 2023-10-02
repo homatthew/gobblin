@@ -88,7 +88,7 @@ public class ProcessWorkUnitsJobLauncher extends GobblinTemporalJobLauncher {
           .setWorkflowId(Help.qualifyNamePerExec(WORKFLOW_ID_BASE, wuSpec, ConfigFactory.parseProperties(jobProps)))
           .build();
       ProcessWorkUnitsWorkflow workflow = this.client.newWorkflowStub(ProcessWorkUnitsWorkflow.class, options);
-      workflow.process(wuSpec);
+      workflow.process(wuSpec, jobProps);
     } catch (Exception e) {
       throw new RuntimeException(e);
     }

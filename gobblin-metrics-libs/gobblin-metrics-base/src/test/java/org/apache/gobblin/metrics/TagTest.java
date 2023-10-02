@@ -17,8 +17,15 @@
 
 package org.apache.gobblin.metrics;
 
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
+
 import org.testng.Assert;
 import org.testng.annotations.Test;
+
+import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 
 /**
@@ -29,6 +36,8 @@ import org.testng.annotations.Test;
 @Test(groups = {"gobblin.metrics"})
 public class TagTest {
 
+
+  private final ObjectMapper objectMapper = new ObjectMapper();
   private static final String JOB_ID_KEY = "job.id";
   private static final String JOB_ID = "TestJob-0";
   private static final String PROJECT_VERSION_KEY = "project.version";
@@ -43,5 +52,23 @@ public class TagTest {
     Tag<Integer> projectVersionTag = new Tag<Integer>(PROJECT_VERSION_KEY, PROJECT_VERSION);
     Assert.assertEquals(projectVersionTag.getKey(), PROJECT_VERSION_KEY);
     Assert.assertEquals(projectVersionTag.getValue().intValue(), PROJECT_VERSION);
+  }
+
+  @Test
+  public void testSerde()
+      throws IOException {
+    Tag<String> jobIdTag = new Tag<String>(JOB_ID_KEY, JOB_ID);
+    Tag<Integer> projectVersionTag = new Tag<Integer>(PROJECT_VERSION_KEY, PROJECT_VERSION);
+    List<Tag<?>> tags = Arrays.asList(jobIdTag, projectVersionTag);
+    String bytes = objectMapper.writeValueAsString(tags);
+
+    JavaType type = objectMapper.getTypeFactory().constructCollectionType(List.class, Tag.class);
+    List<Tag<?>> deserTags = objectMapper.readValue(bytes, type);
+    Assert.assertEquals(deserTags.get(0), jobIdTag);
+    Assert.assertEquals(deserTags.get(1), projectVersionTag);
+  }
+
+  public boolean areEquivalent(Tag<?> left, Tag<?> right) {
+    return left.getKey() == right.getKey() && left.getValue() == right.getValue();
   }
 }

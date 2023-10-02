@@ -222,6 +222,7 @@ public abstract class KafkaJobStatusMonitor extends HighLevelConsumer<byte[], by
    * @throws IOException
    */
   @VisibleForTesting
+  // NOTE: Anything here is being pulled to submit the observability event. So make sure it exists in the props
   static void addJobStatusToStateStore(org.apache.gobblin.configuration.State jobStatus, StateStore stateStore,
       GaaSObservabilityEventProducer eventProducer)
       throws IOException {

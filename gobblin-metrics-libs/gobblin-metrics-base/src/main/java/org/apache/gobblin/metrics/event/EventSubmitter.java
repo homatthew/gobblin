@@ -17,16 +17,18 @@
 
 package org.apache.gobblin.metrics.event;
 
+import java.util.List;
 import java.util.Map;
 
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
+import lombok.Getter;
+
 import org.apache.gobblin.metrics.GobblinTrackingEvent;
 import org.apache.gobblin.metrics.MetricContext;
-
-import lombok.Getter;
+import org.apache.gobblin.metrics.Tag;
 
 
 /**
@@ -203,5 +205,11 @@ public class EventSubmitter {
   @Deprecated
   public TimingEvent getTimingEvent(String name) {
     return new TimingEvent(this, name);
+  }
+
+  public List<Tag<?>> getTags() {
+    return this.metricContext.isPresent() ?
+        this.metricContext.get().getTags() :
+        null;
   }
 }
