@@ -152,8 +152,8 @@ public abstract class GobblinJobLauncher extends AbstractJobLauncher {
 
       synchronized (this.cancellationRequest) {
         if (!this.cancellationRequested) {
+          log.info("Submitting job {}", this.jobContext.getJobId());
           submitJob(workUnits);
-          log.info(String.format("Submitted job %s", this.jobContext.getJobId()));
           this.jobSubmitted = true;
         } else {
           log.warn("Job {} not submitted as it was requested to be cancelled.", this.jobContext.getJobId());
@@ -161,7 +161,7 @@ public abstract class GobblinJobLauncher extends AbstractJobLauncher {
       }
 
       waitJob();
-      log.info(String.format("Job %s completed", this.jobContext.getJobId()));
+      log.info("Job {} completed", this.jobContext.getJobId());
     } finally {
       // The last iteration of output TaskState collecting will run when the collector service gets stopped
       this.taskStateCollectorService.stopAsync().awaitTerminated();

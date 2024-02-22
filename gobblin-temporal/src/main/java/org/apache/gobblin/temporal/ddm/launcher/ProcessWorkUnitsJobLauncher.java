@@ -21,9 +21,11 @@ import java.net.URI;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.hadoop.fs.Path;
 
+import com.google.common.base.Stopwatch;
 import com.google.common.eventbus.EventBus;
 import com.typesafe.config.ConfigFactory;
 
@@ -101,7 +103,10 @@ public class ProcessWorkUnitsJobLauncher extends GobblinTemporalJobLauncher {
           .setWorkflowId(Help.qualifyNamePerExec(WORKFLOW_ID_BASE, wuSpec, ConfigFactory.parseProperties(jobProps)))
           .build();
       ProcessWorkUnitsWorkflow workflow = this.client.newWorkflowStub(ProcessWorkUnitsWorkflow.class, options);
-      workflow.process(wuSpec);
+      Stopwatch watch = Stopwatch.createStarted();
+      int processedWorkunitsCount = workflow.process(wuSpec);
+      log.info("Finished processing workunits count: {}, elapsedTimeMs={}", processedWorkunitsCount, watch.stop().elapsed(
+          TimeUnit.MILLISECONDS));
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
